@@ -1,7 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"github.com/xukonxe/revlay/internal/cli"
+)
 
 func main() {
-	fmt.Println("Welcome to Revlay CLI!")
+	cli.Execute()
 }
