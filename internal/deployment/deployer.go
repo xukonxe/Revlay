@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -267,6 +268,282 @@ func (d *Deployer) Deploy(releaseName string) error {
 	}
 
 	return nil
+}
+
+// DeployZeroDowntime performs zero-downtime deployment using blue-green strategy
+func (d *Deployer) DeployZeroDowntime(releaseName string) error {
+	// Run pre-deploy hooks
+	if err := d.RunHooks("pre_deploy", releaseName); err != nil {
+		return fmt.Errorf("pre-deploy hooks failed: %w", err)
+	}
+
+	// Initialize directories if needed
+	if err := d.InitializeDirectories(); err != nil {
+		return fmt.Errorf("failed to initialize directories: %w", err)
+	}
+
+	// Create release directory
+	if err := d.CreateRelease(releaseName); err != nil {
+		return fmt.Errorf("failed to create release: %w", err)
+	}
+
+	// Link shared paths
+	if err := d.LinkSharedPaths(releaseName); err != nil {
+		return fmt.Errorf("failed to link shared paths: %w", err)
+	}
+
+	// Determine ports for blue-green deployment
+	currentPort, newPort, err := d.determinePorts()
+	if err != nil {
+		return fmt.Errorf("failed to determine ports: %w", err)
+	}
+
+	// Start new service on alternative port
+	if err := d.startServiceOnPort(releaseName, newPort); err != nil {
+		return fmt.Errorf("failed to start service on port %d: %w", newPort, err)
+	}
+
+	// Wait for service to be ready
+	if err := d.waitForService(newPort); err != nil {
+		// Cleanup failed service
+		d.stopServiceOnPort(newPort)
+		return fmt.Errorf("service failed to start: %w", err)
+	}
+
+	// Switch current symlink to new release
+	if err := d.SwitchCurrent(releaseName); err != nil {
+		// Cleanup failed deployment
+		d.stopServiceOnPort(newPort)
+		return fmt.Errorf("failed to switch current: %w", err)
+	}
+
+	// Update load balancer or reverse proxy to point to new port
+	if err := d.switchTrafficToPort(newPort); err != nil {
+		// Try to rollback
+		d.SwitchCurrent(d.getPreviousRelease())
+		d.stopServiceOnPort(newPort)
+		return fmt.Errorf("failed to switch traffic: %w", err)
+	}
+
+	// Gracefully shutdown old service
+	if currentPort != 0 {
+		if err := d.gracefulShutdownService(currentPort); err != nil {
+			// Log error but don't fail deployment
+			fmt.Printf("Warning: failed to gracefully shutdown old service on port %d: %v\n", currentPort, err)
+		}
+	}
+
+	// Run post-deploy hooks
+	if err := d.RunHooks("post_deploy", releaseName); err != nil {
+		return fmt.Errorf("post-deploy hooks failed: %w", err)
+	}
+
+	// Cleanup old releases
+	if err := d.CleanupOldReleases(); err != nil {
+		return fmt.Errorf("failed to cleanup old releases: %w", err)
+	}
+
+	return nil
+}
+
+// determinePorts determines the current and new ports for blue-green deployment
+func (d *Deployer) determinePorts() (int, int, error) {
+	// Check if there's a current release running
+	currentRelease, err := d.GetCurrentRelease()
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get current release: %w", err)
+	}
+
+	if currentRelease == "" {
+		// No current release, use primary port
+		return 0, d.config.Service.Port, nil
+	}
+
+	// Determine which port is currently in use
+	currentPort, err := d.getCurrentServicePort()
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to determine current service port: %w", err)
+	}
+
+	// Switch to alternative port
+	if currentPort == d.config.Service.Port {
+		return currentPort, d.config.Service.AltPort, nil
+	}
+	return currentPort, d.config.Service.Port, nil
+}
+
+// getCurrentServicePort determines which port the current service is running on
+func (d *Deployer) getCurrentServicePort() (int, error) {
+	// Check if service is running on primary port
+	if d.isServiceRunning(d.config.Service.Port) {
+		return d.config.Service.Port, nil
+	}
+	
+	// Check if service is running on alternative port
+	if d.isServiceRunning(d.config.Service.AltPort) {
+		return d.config.Service.AltPort, nil
+	}
+	
+	// No service running, default to primary port
+	return d.config.Service.Port, nil
+}
+
+// isServiceRunning checks if a service is running on the specified port
+func (d *Deployer) isServiceRunning(port int) bool {
+	cmd := fmt.Sprintf("netstat -tlnp | grep ':%d ' | wc -l", port)
+	output, err := d.ssh.RunCommand(cmd)
+	if err != nil {
+		return false
+	}
+	
+	count, err := strconv.Atoi(strings.TrimSpace(output))
+	if err != nil {
+		return false
+	}
+	
+	return count > 0
+}
+
+// startServiceOnPort starts the service on the specified port
+func (d *Deployer) startServiceOnPort(releaseName string, port int) error {
+	releasePath := d.config.GetReleasePathByName(releaseName)
+	
+	// Set environment variables for the service
+	env := make(map[string]string)
+	for k, v := range d.config.Deploy.Environment {
+		env[k] = v
+	}
+	env["PORT"] = fmt.Sprintf("%d", port)
+	env["RELEASE_PATH"] = releasePath
+	
+	// Build service start command
+	cmd := d.buildServiceCommand(d.config.Service.Command, port, releasePath)
+	
+	// Start the service
+	if _, err := d.ssh.RunCommand(cmd); err != nil {
+		return fmt.Errorf("failed to start service: %w", err)
+	}
+	
+	return nil
+}
+
+// buildServiceCommand builds the service command with port and path substitution
+func (d *Deployer) buildServiceCommand(baseCommand string, port int, releasePath string) string {
+	cmd := baseCommand
+	cmd = strings.ReplaceAll(cmd, "${PORT}", fmt.Sprintf("%d", port))
+	cmd = strings.ReplaceAll(cmd, "${RELEASE_PATH}", releasePath)
+	cmd = strings.ReplaceAll(cmd, "${CURRENT_PATH}", d.config.GetCurrentPath())
+	cmd = strings.ReplaceAll(cmd, "${SHARED_PATH}", d.config.GetSharedPath())
+	return cmd
+}
+
+// waitForService waits for the service to be ready on the specified port
+func (d *Deployer) waitForService(port int) error {
+	maxRetries := 30
+	retryDelay := time.Duration(d.config.Service.RestartDelay) * time.Second
+	
+	for i := 0; i < maxRetries; i++ {
+		if d.isServiceHealthy(port) {
+			return nil
+		}
+		
+		time.Sleep(retryDelay)
+	}
+	
+	return fmt.Errorf("service failed to become healthy after %d retries", maxRetries)
+}
+
+// isServiceHealthy checks if the service is healthy on the specified port
+func (d *Deployer) isServiceHealthy(port int) bool {
+	if d.config.Service.HealthCheck == "" {
+		// No health check configured, just check if port is listening
+		return d.isServiceRunning(port)
+	}
+	
+	// Perform HTTP health check
+	url := fmt.Sprintf("http://localhost:%d%s", port, d.config.Service.HealthCheck)
+	cmd := fmt.Sprintf("curl -s -o /dev/null -w '%%{http_code}' %s", url)
+	
+	output, err := d.ssh.RunCommand(cmd)
+	if err != nil {
+		return false
+	}
+	
+	httpCode, err := strconv.Atoi(strings.TrimSpace(output))
+	if err != nil {
+		return false
+	}
+	
+	return httpCode >= 200 && httpCode < 400
+}
+
+// switchTrafficToPort switches the load balancer or reverse proxy to the new port
+func (d *Deployer) switchTrafficToPort(port int) error {
+	// This is a placeholder for load balancer/reverse proxy switching logic
+	// In a real implementation, this would update nginx, haproxy, etc.
+	
+	// For now, we'll use a simple approach with a port file
+	portFile := filepath.Join(d.config.Deploy.Path, "current_port")
+	cmd := fmt.Sprintf("echo %d > %s", port, portFile)
+	
+	if _, err := d.ssh.RunCommand(cmd); err != nil {
+		return fmt.Errorf("failed to update port file: %w", err)
+	}
+	
+	return nil
+}
+
+// gracefulShutdownService gracefully shuts down the service on the specified port
+func (d *Deployer) gracefulShutdownService(port int) error {
+	timeout := d.config.Service.GracefulTimeout
+	if timeout <= 0 {
+		timeout = 30 // Default 30 seconds
+	}
+	
+	// Send graceful shutdown signal
+	cmd := fmt.Sprintf("pkill -TERM -f 'port.*%d' || true", port)
+	if _, err := d.ssh.RunCommand(cmd); err != nil {
+		return fmt.Errorf("failed to send graceful shutdown signal: %w", err)
+	}
+	
+	// Wait for graceful shutdown
+	time.Sleep(time.Duration(timeout) * time.Second)
+	
+	// Force kill if still running
+	if d.isServiceRunning(port) {
+		cmd = fmt.Sprintf("pkill -KILL -f 'port.*%d' || true", port)
+		if _, err := d.ssh.RunCommand(cmd); err != nil {
+			return fmt.Errorf("failed to force kill service: %w", err)
+		}
+	}
+	
+	return nil
+}
+
+// stopServiceOnPort stops the service on the specified port
+func (d *Deployer) stopServiceOnPort(port int) error {
+	cmd := fmt.Sprintf("pkill -KILL -f 'port.*%d' || true", port)
+	if _, err := d.ssh.RunCommand(cmd); err != nil {
+		return fmt.Errorf("failed to stop service on port %d: %w", port, err)
+	}
+	return nil
+}
+
+// getPreviousRelease returns the previous release name
+func (d *Deployer) getPreviousRelease() string {
+	releases, err := d.ListReleases()
+	if err != nil || len(releases) < 2 {
+		return ""
+	}
+	
+	// Find current release and return the previous one
+	for i, release := range releases {
+		if release.Current && i+1 < len(releases) {
+			return releases[i+1].Name
+		}
+	}
+	
+	return ""
 }
 
 // Rollback rolls back to a previous release

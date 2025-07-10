@@ -5,20 +5,29 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/xukonxe/revlay/internal/deployment"
+	"github.com/xukonxe/revlay/internal/i18n"
 	"github.com/xukonxe/revlay/internal/ssh"
 )
 
 var rollbackCmd = &cobra.Command{
 	Use:   "rollback [release-name]",
-	Short: "Rollback to a previous release",
-	Long: `Rollback to a previous release.
-	
-If no release name is provided, it will rollback to the previous release.
-This command will switch the current symlink to point to the specified release.`,
+	Short: "",
+	Long:  ``,
 	RunE: runRollback,
 }
 
+func init() {
+	// Update command descriptions when config is initialized
+	cobra.OnInitialize(func() {
+		t := i18n.T()
+		rollbackCmd.Short = t.RollbackShortDesc
+		rollbackCmd.Long = t.RollbackLongDesc
+	})
+}
+
 func runRollback(cmd *cobra.Command, args []string) error {
+	t := i18n.T()
+	
 	// Load configuration
 	cfg, err := loadConfig()
 	if err != nil {
@@ -36,7 +45,7 @@ func runRollback(cmd *cobra.Command, args []string) error {
 
 	client, err := ssh.NewClient(sshConfig)
 	if err != nil {
-		return fmt.Errorf("failed to connect to server: %w", err)
+		return fmt.Errorf(t.ErrorSSHConnect, err)
 	}
 	defer client.Close()
 
@@ -78,15 +87,15 @@ func runRollback(cmd *cobra.Command, args []string) error {
 		targetRelease = releases[currentIndex+1].Name
 	}
 
-	fmt.Printf("🔄 Rolling back to release: %s\n", targetRelease)
+	fmt.Printf(t.RollbackToRelease+"\n", targetRelease)
 
 	// Perform rollback
 	if err := deployer.Rollback(targetRelease); err != nil {
 		return fmt.Errorf("rollback failed: %w", err)
 	}
 
-	fmt.Printf("✓ Rollback completed successfully\n")
-	fmt.Printf("✓ Release %s is now live at %s\n", targetRelease, cfg.Deploy.Path)
+	fmt.Printf(t.RollbackSuccess+"\n", targetRelease)
+	fmt.Printf(t.DeployReleaseLive+"\n", targetRelease, cfg.Deploy.Path)
 
 	return nil
 }

@@ -7,20 +7,29 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/xukonxe/revlay/internal/deployment"
+	"github.com/xukonxe/revlay/internal/i18n"
 	"github.com/xukonxe/revlay/internal/ssh"
 )
 
 var releasesCmd = &cobra.Command{
 	Use:   "releases",
-	Short: "List all releases",
-	Long: `List all releases on the server.
-	
-This command shows all available releases with their timestamps
-and indicates which release is currently active.`,
+	Short: "",
+	Long:  ``,
 	RunE: runReleases,
 }
 
+func init() {
+	// Update command descriptions when config is initialized
+	cobra.OnInitialize(func() {
+		t := i18n.T()
+		releasesCmd.Short = t.ReleasesShortDesc
+		releasesCmd.Long = t.ReleasesLongDesc
+	})
+}
+
 func runReleases(cmd *cobra.Command, args []string) error {
+	t := i18n.T()
+	
 	// Load configuration
 	cfg, err := loadConfig()
 	if err != nil {
@@ -38,7 +47,7 @@ func runReleases(cmd *cobra.Command, args []string) error {
 
 	client, err := ssh.NewClient(sshConfig)
 	if err != nil {
-		return fmt.Errorf("failed to connect to server: %w", err)
+		return fmt.Errorf(t.ErrorSSHConnect, err)
 	}
 	defer client.Close()
 
@@ -52,7 +61,7 @@ func runReleases(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(releases) == 0 {
-		fmt.Println("No releases found")
+		fmt.Println(t.ReleasesNoReleases)
 		return nil
 	}
 

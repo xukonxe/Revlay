@@ -6,17 +6,14 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/xukonxe/revlay/internal/config"
 	"github.com/xukonxe/revlay/internal/deployment"
+	"github.com/xukonxe/revlay/internal/i18n"
 	"github.com/xukonxe/revlay/internal/ssh"
 )
 
 var deployCmd = &cobra.Command{
 	Use:   "deploy [release-name]",
-	Short: "Deploy a new release",
-	Long: `Deploy a new release to the server.
-	
-If no release name is provided, a timestamp-based name will be generated.
-This command will create a new release directory, link shared paths,
-and switch the current symlink to the new release.`,
+	Short: "",
+	Long:  ``,
 	RunE: runDeploy,
 }
 
@@ -25,10 +22,20 @@ var (
 )
 
 func init() {
-	deployCmd.Flags().BoolVarP(&deployDryRun, "dry-run", "d", false, "Show what would be done without actually deploying")
+	deployCmd.Flags().BoolVarP(&deployDryRun, "dry-run", "d", false, "")
+	
+	// Update command descriptions when config is initialized
+	cobra.OnInitialize(func() {
+		t := i18n.T()
+		deployCmd.Short = t.DeployShortDesc
+		deployCmd.Long = t.DeployLongDesc
+		deployCmd.Flags().Lookup("dry-run").Usage = t.DeployDryRunFlag
+	})
 }
 
 func runDeploy(cmd *cobra.Command, args []string) error {
+	t := i18n.T()
+	
 	// Load configuration
 	cfg, err := loadConfig()
 	if err != nil {
@@ -43,10 +50,10 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		releaseName = deployment.GenerateReleaseTimestamp()
 	}
 
-	fmt.Printf("🚀 Starting deployment of release: %s\n", releaseName)
+	fmt.Printf(t.DeployStarting+"\n", releaseName)
 
 	if deployDryRun {
-		fmt.Println("🔍 DRY RUN MODE - No actual changes will be made")
+		fmt.Println(t.DeployDryRunMode)
 		return runDeployDryRun(cfg, releaseName)
 	}
 
@@ -61,44 +68,58 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 
 	client, err := ssh.NewClient(sshConfig)
 	if err != nil {
-		return fmt.Errorf("failed to connect to server: %w", err)
+		return fmt.Errorf(t.ErrorSSHConnect, err)
 	}
 	defer client.Close()
 
 	// Test connection
-	fmt.Println("🔗 Testing SSH connection...")
+	fmt.Println(t.DeploySSHTest)
 	if err := client.TestConnection(); err != nil {
-		return fmt.Errorf("SSH connection test failed: %w", err)
+		return fmt.Errorf(t.ErrorSSHTest, err)
 	}
-	fmt.Println("✓ SSH connection successful")
+	fmt.Println(t.DeploySSHSuccess)
 
 	// Create deployer
 	deployer := deployment.NewDeployer(cfg, client)
 
-	// Perform deployment
-	fmt.Println("📦 Deploying release...")
-	if err := deployer.Deploy(releaseName); err != nil {
-		return fmt.Errorf("deployment failed: %w", err)
+	// Perform deployment based on mode
+	fmt.Println(t.DeployInProgress)
+	if err := performDeployment(deployer, cfg, releaseName); err != nil {
+		return fmt.Errorf(t.ErrorDeployment, err)
 	}
 
-	fmt.Printf("✓ Deployment completed successfully\n")
-	fmt.Printf("✓ Release %s is now live at %s\n", releaseName, cfg.Deploy.Path)
+	fmt.Println(t.DeploySuccess)
+	fmt.Printf(t.DeployReleaseLive+"\n", releaseName, cfg.Deploy.Path)
 
 	return nil
 }
 
+func performDeployment(deployer *deployment.Deployer, cfg *config.Config, releaseName string) error {
+	switch cfg.Deploy.Mode {
+	case config.ZeroDowntimeMode:
+		return deployer.DeployZeroDowntime(releaseName)
+	case config.ShortDowntimeMode:
+		return deployer.Deploy(releaseName)
+	default:
+		return deployer.Deploy(releaseName)
+	}
+}
+
 func runDeployDryRun(cfg *config.Config, releaseName string) error {
-	fmt.Println("📋 Deployment plan:")
-	fmt.Printf("  - Application: %s\n", cfg.App.Name)
-	fmt.Printf("  - Server: %s@%s:%d\n", cfg.Server.User, cfg.Server.Host, cfg.Server.Port)
-	fmt.Printf("  - Release: %s\n", releaseName)
-	fmt.Printf("  - Deploy path: %s\n", cfg.Deploy.Path)
-	fmt.Printf("  - Releases path: %s\n", cfg.GetReleasesPath())
-	fmt.Printf("  - Shared path: %s\n", cfg.GetSharedPath())
-	fmt.Printf("  - Current path: %s\n", cfg.GetCurrentPath())
-	fmt.Printf("  - Release path: %s\n", cfg.GetReleasePathByName(releaseName))
+	t := i18n.T()
 	
-	fmt.Println("\n📂 Directory structure to be created:")
+	fmt.Println(t.DryRunPlan)
+	fmt.Printf("  - %s: %s\n", t.DryRunApplication, cfg.App.Name)
+	fmt.Printf("  - %s: %s@%s:%d\n", t.DryRunServer, cfg.Server.User, cfg.Server.Host, cfg.Server.Port)
+	fmt.Printf("  - %s: %s\n", t.DryRunRelease, releaseName)
+	fmt.Printf("  - %s: %s\n", t.DryRunDeployPath, cfg.Deploy.Path)
+	fmt.Printf("  - %s: %s\n", t.DryRunReleasesPath, cfg.GetReleasesPath())
+	fmt.Printf("  - %s: %s\n", t.DryRunSharedPath, cfg.GetSharedPath())
+	fmt.Printf("  - %s: %s\n", t.DryRunCurrentPath, cfg.GetCurrentPath())
+	fmt.Printf("  - %s: %s\n", t.DryRunReleasePathFmt, cfg.GetReleasePathByName(releaseName))
+	fmt.Printf("  - %s: %s\n", t.DeploymentMode, cfg.Deploy.Mode)
+	
+	fmt.Println("\n" + t.DryRunDirStructure)
 	fmt.Printf("  %s/\n", cfg.Deploy.Path)
 	fmt.Printf("  ├── releases/\n")
 	fmt.Printf("  │   └── %s/\n", releaseName)
@@ -108,26 +129,39 @@ func runDeployDryRun(cfg *config.Config, releaseName string) error {
 	}
 	fmt.Printf("  └── current -> releases/%s\n", releaseName)
 
-	fmt.Println("\n🔗 Shared paths to be linked:")
+	fmt.Println("\n" + t.DryRunSharedPaths)
 	for _, sharedPath := range cfg.Deploy.SharedPaths {
 		fmt.Printf("  - %s\n", sharedPath)
 	}
 
-	fmt.Println("\n🪝 Hooks to be executed:")
+	fmt.Println("\n" + t.DryRunHooks)
 	if len(cfg.Hooks.PreDeploy) > 0 {
-		fmt.Println("  Pre-deploy:")
+		fmt.Printf("  %s:\n", t.DryRunPreDeploy)
 		for _, hook := range cfg.Hooks.PreDeploy {
 			fmt.Printf("    - %s\n", hook)
 		}
 	}
 	if len(cfg.Hooks.PostDeploy) > 0 {
-		fmt.Println("  Post-deploy:")
+		fmt.Printf("  %s:\n", t.DryRunPostDeploy)
 		for _, hook := range cfg.Hooks.PostDeploy {
 			fmt.Printf("    - %s\n", hook)
 		}
 	}
 
-	fmt.Printf("\n🧹 Keep %d releases (older ones will be cleaned up)\n", cfg.App.KeepReleases)
+	// Show deployment mode specific information
+	if cfg.Deploy.Mode == config.ZeroDowntimeMode {
+		fmt.Printf("\n%s (%s):\n", t.DeploymentMode, t.ZeroDowntime)
+		fmt.Printf("  - %s: %d\n", t.ServicePort, cfg.Service.Port)
+		fmt.Printf("  - Alternative Port: %d\n", cfg.Service.AltPort)
+		fmt.Printf("  - %s: %s\n", t.ServiceHealthCheck, cfg.Service.HealthCheck)
+		fmt.Printf("  - %s: %ds\n", t.ServiceRestartDelay, cfg.Service.RestartDelay)
+	} else {
+		fmt.Printf("\n%s (%s):\n", t.DeploymentMode, t.ShortDowntime)
+		fmt.Printf("  - %s: %s\n", t.ServiceCommand, cfg.Service.Command)
+		fmt.Printf("  - Graceful Timeout: %ds\n", cfg.Service.GracefulTimeout)
+	}
+
+	fmt.Printf("\n"+t.DryRunKeepReleases+"\n", cfg.App.KeepReleases)
 
 	return nil
 }

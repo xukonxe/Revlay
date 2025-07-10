@@ -5,20 +5,29 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/xukonxe/revlay/internal/deployment"
+	"github.com/xukonxe/revlay/internal/i18n"
 	"github.com/xukonxe/revlay/internal/ssh"
 )
 
 var statusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Show deployment status",
-	Long: `Show the current deployment status.
-	
-This command displays information about the current release,
-deployment configuration, and server connection status.`,
+	Short: "",
+	Long:  ``,
 	RunE: runStatus,
 }
 
+func init() {
+	// Update command descriptions when config is initialized
+	cobra.OnInitialize(func() {
+		t := i18n.T()
+		statusCmd.Short = t.StatusShortDesc
+		statusCmd.Long = t.StatusLongDesc
+	})
+}
+
 func runStatus(cmd *cobra.Command, args []string) error {
+	t := i18n.T()
+	
 	// Load configuration
 	cfg, err := loadConfig()
 	if err != nil {
@@ -27,9 +36,9 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("📋 Deployment Status\n")
 	fmt.Printf("═══════════════════════════════════════════════════════════════\n")
-	fmt.Printf("Application: %s\n", cfg.App.Name)
-	fmt.Printf("Server: %s@%s:%d\n", cfg.Server.User, cfg.Server.Host, cfg.Server.Port)
-	fmt.Printf("Deploy Path: %s\n", cfg.Deploy.Path)
+	fmt.Printf("%s: %s\n", t.StatusAppName, cfg.App.Name)
+	fmt.Printf("%s: %s@%s:%d\n", t.StatusServerInfo, cfg.Server.User, cfg.Server.Host, cfg.Server.Port)
+	fmt.Printf("%s: %s\n", t.StatusDeployPath, cfg.Deploy.Path)
 	fmt.Printf("Keep Releases: %d\n", cfg.App.KeepReleases)
 	fmt.Printf("───────────────────────────────────────────────────────────────\n")
 
@@ -73,11 +82,11 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	// Get current release
 	currentRelease, err := deployer.GetCurrentRelease()
 	if err != nil {
-		fmt.Printf("❌ Current Release: ERROR (%v)\n", err)
+		fmt.Printf("❌ %s: ERROR (%v)\n", t.StatusCurrentRelease, err)
 	} else if currentRelease == "" {
-		fmt.Printf("⚠️  Current Release: NONE\n")
+		fmt.Printf("⚠️  %s: %s\n", t.StatusCurrentRelease, t.StatusNoRelease)
 	} else {
-		fmt.Printf("✓ Current Release: %s\n", currentRelease)
+		fmt.Printf("✓ %s: %s\n", t.StatusCurrentRelease, currentRelease)
 	}
 
 	// List releases
@@ -89,6 +98,18 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		if len(releases) > cfg.App.KeepReleases {
 			fmt.Printf("⚠️  Old Releases: %d will be cleaned up on next deployment\n", len(releases)-cfg.App.KeepReleases)
 		}
+	}
+
+	// Show deployment mode
+	fmt.Printf("───────────────────────────────────────────────────────────────\n")
+	fmt.Printf("%s: %s\n", t.DeploymentMode, cfg.Deploy.Mode)
+	
+	if cfg.Deploy.Mode == "zero_downtime" {
+		fmt.Printf("  - %s: %d\n", t.ServicePort, cfg.Service.Port)
+		fmt.Printf("  - Alternative Port: %d\n", cfg.Service.AltPort)
+		fmt.Printf("  - %s: %s\n", t.ServiceHealthCheck, cfg.Service.HealthCheck)
+	} else {
+		fmt.Printf("  - %s: %s\n", t.ServiceCommand, cfg.Service.Command)
 	}
 
 	// Show shared paths
@@ -105,14 +126,14 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Hooks:\n")
 		
 		if len(cfg.Hooks.PreDeploy) > 0 {
-			fmt.Printf("  Pre-deploy:\n")
+			fmt.Printf("  %s:\n", t.DryRunPreDeploy)
 			for _, hook := range cfg.Hooks.PreDeploy {
 				fmt.Printf("    - %s\n", hook)
 			}
 		}
 		
 		if len(cfg.Hooks.PostDeploy) > 0 {
-			fmt.Printf("  Post-deploy:\n")
+			fmt.Printf("  %s:\n", t.DryRunPostDeploy)
 			for _, hook := range cfg.Hooks.PostDeploy {
 				fmt.Printf("    - %s\n", hook)
 			}

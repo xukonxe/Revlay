@@ -6,18 +6,16 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/xukonxe/revlay/internal/config"
+	"github.com/xukonxe/revlay/internal/i18n"
 )
 
 var (
-	cfgFile string
-	rootCmd = &cobra.Command{
+	cfgFile  string
+	langFlag string
+	rootCmd  = &cobra.Command{
 		Use:   "revlay",
-		Short: "A modern, fast, dependency-free deployment tool",
-		Long: `Revlay is a modern deployment tool that provides atomic deployments,
-zero-downtime deployments, and easy rollbacks for traditional server deployments.
-
-It uses a structured directory layout with releases, shared files, and atomic
-symlink switching to ensure reliable deployments.`,
+		Short: "",
+		Long:  ``,
 		Version: "1.0.0",
 	}
 )
@@ -34,7 +32,8 @@ func init() {
 	cobra.OnInitialize(initConfig)
 	
 	// Global flags
-	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "", "config file (default is revlay.yml)")
+	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "", "")
+	rootCmd.PersistentFlags().StringVarP(&langFlag, "lang", "l", "", "")
 	
 	// Add subcommands
 	rootCmd.AddCommand(initCmd)
@@ -46,6 +45,16 @@ func init() {
 
 // initConfig initializes the configuration
 func initConfig() {
+	// Initialize language first
+	i18n.InitLanguage(langFlag)
+	
+	// Update command descriptions with translated text
+	t := i18n.T()
+	rootCmd.Short = t.AppShortDesc
+	rootCmd.Long = t.AppLongDesc
+	rootCmd.PersistentFlags().Lookup("config").Usage = t.ConfigFileFlag
+	rootCmd.PersistentFlags().Lookup("lang").Usage = t.LanguageFlag
+	
 	if cfgFile == "" {
 		cfgFile = "revlay.yml"
 	}
@@ -53,13 +62,14 @@ func initConfig() {
 
 // loadConfig loads the configuration file
 func loadConfig() (*config.Config, error) {
+	t := i18n.T()
 	if _, err := os.Stat(cfgFile); os.IsNotExist(err) {
-		return nil, fmt.Errorf("config file %s not found, run 'revlay init' first", cfgFile)
+		return nil, fmt.Errorf(t.ErrorConfigNotFound, cfgFile)
 	}
 	
 	cfg, err := config.LoadConfig(cfgFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
+		return nil, fmt.Errorf(t.ErrorConfigLoad, err)
 	}
 	
 	return cfg, nil
