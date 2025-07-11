@@ -28,12 +28,9 @@ type Messages struct {
 	InitSuccess     string
 	InitFailed      string
 	InitNameFlag    string
-	InitHostFlag    string
-	InitUserFlag    string
 	InitPathFlag    string
+	InitDirectoryFlag string // I'm adding this line
 	InitPromptName  string
-	InitPromptHost  string
-	InitPromptUser  string
 	InitPromptPath  string
 	
 	// Deploy Command
@@ -48,7 +45,8 @@ type Messages struct {
 	DeployFailed         string
 	DeployDryRunFlag     string
 	DeployReleaseLive    string
-	
+	DeployDryRunPlan     string
+
 	// Rollback Command
 	RollbackShortDesc    string
 	RollbackLongDesc     string
@@ -56,13 +54,16 @@ type Messages struct {
 	RollbackFailed       string
 	RollbackToRelease    string
 	RollbackNoReleases   string
-	
+	RollbackStarting     string
+
 	// Releases Command
 	ReleasesShortDesc    string
 	ReleasesLongDesc     string
 	ReleasesListHeader   string
 	ReleasesNoReleases   string
 	ReleasesCurrent      string
+	ReleasesHeader       string
+	ErrorReleasesList    string
 	
 	// Status Command
 	StatusShortDesc      string
@@ -84,7 +85,6 @@ type Messages struct {
 	DryRunCurrentPath    string
 	DryRunReleasePathFmt string
 	DryRunDirStructure   string
-	DryRunSharedPaths    string
 	DryRunHooks          string
 	DryRunPreDeploy      string
 	DryRunPostDeploy     string
@@ -125,19 +125,17 @@ var chineseMessages = Messages{
 	ConfigFileFlag:  "配置文件 (默认为 revlay.yml)",
 	LanguageFlag:    "语言设置 (zh|en)",
 	
-	InitShortDesc:   "初始化新项目",
-	InitLongDesc:    "初始化一个新的Revlay项目，创建默认的配置文件revlay.yml。",
-	InitSuccess:     "✓ 项目初始化成功，配置文件已生成：%s",
-	InitFailed:      "初始化失败：%v",
+	InitShortDesc:   "使用 revlay.yml 文件初始化一个新项目",
+	InitLongDesc:    `init 命令在当前或指定目录中创建一个新的 revlay.yml 配置文件。`,
 	InitNameFlag:    "应用名称",
-	InitHostFlag:    "服务器主机名",
-	InitUserFlag:    "SSH用户名",
-	InitPathFlag:    "部署路径",
+	InitPathFlag:    "服务器上的部署路径",
+	InitDirectoryFlag: "用于初始化的目标目录",
 	InitPromptName:  "应用名称",
-	InitPromptHost:  "服务器主机名",
-	InitPromptUser:  "SSH用户名",
 	InitPromptPath:  "部署路径",
-	
+	InitFailed:      "初始化失败: %v",
+	InitSuccess:     "配置文件已创建于 %s",
+
+	// deploy command
 	DeployShortDesc:      "部署新版本",
 	DeployLongDesc:       "部署新版本到服务器。\n\n如果没有提供版本名称，将自动生成基于时间戳的名称。\n此命令将创建新的版本目录，链接共享路径，并切换current符号链接到新版本。",
 	DeployStarting:       "🚀 开始部署版本：%s",
@@ -149,22 +147,29 @@ var chineseMessages = Messages{
 	DeployFailed:         "部署失败：%v",
 	DeployDryRunFlag:     "显示将要执行的操作，但不实际部署",
 	DeployReleaseLive:    "✓ 版本 %s 已在 %s 上线",
-	
-	RollbackShortDesc:    "回滚到指定版本",
-	RollbackLongDesc:     "回滚到指定版本。如果没有指定版本，将回滚到上一个版本。",
-	RollbackSuccess:      "✓ 成功回滚到版本：%s",
+	DeployDryRunPlan:     "部署计划:",
+
+	// releases command
+	ReleasesShortDesc:  "列出所有已部署的版本",
+	ReleasesLongDesc:   "列出在 releases 目录中找到的所有版本。",
+	ReleasesListHeader:   "📋 已部署的版本：",
+	ReleasesNoReleases:   "未找到任何版本。",
+	ReleasesCurrent:      " (当前)",
+	ReleasesHeader:     "%-18s %s",
+	ErrorReleasesList:  "列出版本失败: %v",
+
+	// rollback command
+	RollbackShortDesc: "回滚到上一个版本",
+	RollbackLongDesc:  "通过切换 'current' 符号链接将应用程序回滚到指定的版本。",
+	RollbackStarting:  "正在回滚到版本 %s...",
+	RollbackSuccess:   "成功回滚到 %s。",
 	RollbackFailed:       "回滚失败：%v",
 	RollbackToRelease:    "🔄 回滚到版本：%s",
 	RollbackNoReleases:   "没有找到可回滚的版本",
 	
-	ReleasesShortDesc:    "列出所有版本",
-	ReleasesLongDesc:     "列出所有已部署的版本，显示版本名称、时间戳和当前激活状态。",
-	ReleasesListHeader:   "📋 已部署的版本：",
-	ReleasesNoReleases:   "没有找到已部署的版本",
-	ReleasesCurrent:      " (当前)",
-	
-	StatusShortDesc:      "显示部署状态",
-	StatusLongDesc:       "显示当前部署状态，包括激活的版本、应用信息和服务器配置。",
+	// Status Command
+	StatusShortDesc: "显示部署状态",
+	StatusLongDesc:  "显示当前部署的版本和其他状态信息。",
 	StatusCurrentRelease: "当前版本：%s",
 	StatusNoRelease:      "没有激活的版本",
 	StatusAppName:        "应用名称：%s",
@@ -181,13 +186,12 @@ var chineseMessages = Messages{
 	DryRunCurrentPath:    "当前路径",
 	DryRunReleasePathFmt: "版本路径",
 	DryRunDirStructure:   "📂 将要创建的目录结构：",
-	DryRunSharedPaths:    "🔗 将要链接的共享路径：",
 	DryRunHooks:          "🪝 将要执行的钩子：",
 	DryRunPreDeploy:      "部署前",
 	DryRunPostDeploy:     "部署后",
 	DryRunKeepReleases:   "🧹 保留 %d 个版本（旧版本将被清理）",
 	
-	ErrorConfigNotFound:  "配置文件 %s 未找到，请先运行 'revlay init'",
+	ErrorConfigNotFound:  "未找到配置文件: %s",
 	ErrorConfigLoad:      "加载配置失败：%v",
 	ErrorSSHConnect:      "连接服务器失败：%v",
 	ErrorSSHTest:         "SSH连接测试失败：%v",
@@ -210,26 +214,24 @@ var chineseMessages = Messages{
 
 // English messages
 var englishMessages = Messages{
-	AppShortDesc:    "A modern, fast, dependency-free deployment tool",
-	AppLongDesc:     `Revlay is a modern deployment tool that provides atomic deployments,\nzero-downtime deployments, and easy rollbacks for traditional server deployments.\n\nIt uses a structured directory layout with releases, shared files, and atomic\nsymlink switching to ensure reliable deployments.`,
-	AppVersion:      "Version",
-	ConfigFileFlag:  "config file (default is revlay.yml)",
-	LanguageFlag:    "language setting (zh|en)",
-	
-	InitShortDesc:   "Initialize a new project",
-	InitLongDesc:    "Initialize a new Revlay project and create a default revlay.yml configuration file.",
-	InitSuccess:     "✓ Project initialized successfully, config file created: %s",
-	InitFailed:      "Initialization failed: %v",
+	AppShortDesc:    "A modern, fast, dependency-free deployment and server lifecycle management tool.",
+	AppLongDesc:     `Revlay is a command-line tool for deploying and managing web applications.`,
+	ConfigFileFlag:  "Path to config file (default is revlay.yml)",
+	LanguageFlag:    "Language for output (e.g., 'en', 'zh')",
+
+	// init command
+	InitShortDesc:   "Initialize a new project with a revlay.yml file",
+	InitLongDesc:    `The init command creates a new revlay.yml configuration file in the current or specified directory.`,
 	InitNameFlag:    "Application name",
-	InitHostFlag:    "Server hostname",
-	InitUserFlag:    "SSH username",
-	InitPathFlag:    "Deployment path",
+	InitPathFlag:    "Deployment path on the server",
+	InitDirectoryFlag: "Target directory for initialization",
 	InitPromptName:  "Application name",
-	InitPromptHost:  "Server hostname",
-	InitPromptUser:  "SSH username",
 	InitPromptPath:  "Deployment path",
-	
-	DeployShortDesc:      "Deploy a new release",
+	InitFailed:      "Initialization failed: %v",
+	InitSuccess:     "Configuration file created at %s",
+
+	// deploy command
+	DeployShortDesc: "Deploy the application to the server",
 	DeployLongDesc:       "Deploy a new release to the server.\n\nIf no release name is provided, a timestamp-based name will be generated.\nThis command will create a new release directory, link shared paths,\nand switch the current symlink to the new release.",
 	DeployStarting:       "🚀 Starting deployment of release: %s",
 	DeployDryRunMode:     "🔍 DRY RUN MODE - No actual changes will be made",
@@ -240,22 +242,29 @@ var englishMessages = Messages{
 	DeployFailed:         "Deployment failed: %v",
 	DeployDryRunFlag:     "Show what would be done without actually deploying",
 	DeployReleaseLive:    "✓ Release %s is now live at %s",
-	
-	RollbackShortDesc:    "Rollback to a specific release",
-	RollbackLongDesc:     "Rollback to a specific release. If no release is specified, rollback to the previous release.",
-	RollbackSuccess:      "✓ Successfully rolled back to release: %s",
+	DeployDryRunPlan:     "Deployment Plan:",
+
+	// releases command
+	ReleasesShortDesc:  "List all deployed releases",
+	ReleasesLongDesc:   "Lists all releases found in the releases directory.",
+	ReleasesListHeader:   "📋 Deployed releases:",
+	ReleasesNoReleases:   "No releases found.",
+	ReleasesCurrent:      " (current)",
+	ReleasesHeader:     "%-18s %s",
+	ErrorReleasesList:  "Failed to list releases: %v",
+
+	// rollback command
+	RollbackShortDesc: "Rollback to a previous release",
+	RollbackLongDesc:  "Rolls back the application to a specified release by switching the 'current' symlink.",
+	RollbackStarting:  "Rolling back to release %s...",
+	RollbackSuccess:   "Successfully rolled back to %s.",
 	RollbackFailed:       "Rollback failed: %v",
 	RollbackToRelease:    "🔄 Rolling back to release: %s",
 	RollbackNoReleases:   "No releases found to rollback to",
 	
-	ReleasesShortDesc:    "List all releases",
-	ReleasesLongDesc:     "List all deployed releases, showing release names, timestamps, and current active status.",
-	ReleasesListHeader:   "📋 Deployed releases:",
-	ReleasesNoReleases:   "No deployed releases found",
-	ReleasesCurrent:      " (current)",
-	
-	StatusShortDesc:      "Show deployment status",
-	StatusLongDesc:       "Show current deployment status including active release, application info, and server configuration.",
+	// Status Command
+	StatusShortDesc: "Show the status of the deployment",
+	StatusLongDesc:  "Displays the current deployed release and other status information.",
 	StatusCurrentRelease: "Current release: %s",
 	StatusNoRelease:      "No active release",
 	StatusAppName:        "Application: %s",
@@ -271,9 +280,8 @@ var englishMessages = Messages{
 	DryRunSharedPath:     "Shared path",
 	DryRunCurrentPath:    "Current path",
 	DryRunReleasePathFmt: "Release path",
-	DryRunDirStructure:   "📂 Directory structure to be created:",
-	DryRunSharedPaths:    "🔗 Shared paths to be linked:",
-	DryRunHooks:          "🪝 Hooks to be executed:",
+	DryRunDirStructure:   "Directory structure to be created:",
+	DryRunHooks:          "Hooks",
 	DryRunPreDeploy:      "Pre-deploy",
 	DryRunPostDeploy:     "Post-deploy",
 	DryRunKeepReleases:   "🧹 Keep %d releases (older ones will be cleaned up)",

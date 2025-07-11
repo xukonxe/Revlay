@@ -1,0 +1,23 @@
+app:
+    name: myapp
+    keep_releases: 5
+deploy:
+    shared_paths:
+        - .
+    environment:
+        NODE_ENV: production
+    mode: zero_downtime
+service:
+    restart_command: systemctl restart myapp
+    port: 8080
+    alt_port: 8081
+    health_check: /health
+    restart_delay: 5
+    graceful_timeout: 30
+hooks:
+    pre_deploy: []
+    post_deploy:
+        - systemctl reload nginx
+    pre_rollback: []
+    post_rollback:
+        - systemctl reload nginx

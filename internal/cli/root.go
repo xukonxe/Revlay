@@ -5,72 +5,40 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/xukonxe/revlay/internal/config"
-	"github.com/xukonxe/revlay/internal/i18n"
+	"github.com/xukonxe/revlay/internal/color"
 )
 
-var (
-	cfgFile  string
-	langFlag string
-	rootCmd  = &cobra.Command{
-		Use:   "revlay",
-		Short: "",
-		Long:  ``,
-		Version: "1.0.0",
-	}
-)
-
-// Execute runs the root command
+// Execute is the main entry point for the CLI.
 func Execute() {
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	if err := newRootCmd().Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, color.Red("Error: %v", err))
 		os.Exit(1)
 	}
 }
 
-func init() {
-	cobra.OnInitialize(initConfig)
-	
-	// Global flags
-	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "", "")
-	rootCmd.PersistentFlags().StringVarP(&langFlag, "lang", "l", "", "")
-	
-	// Add subcommands
-	rootCmd.AddCommand(initCmd)
-	rootCmd.AddCommand(deployCmd)
-	rootCmd.AddCommand(rollbackCmd)
-	rootCmd.AddCommand(releasesCmd)
-	rootCmd.AddCommand(statusCmd)
-}
+// newRootCmd creates the root command and adds all subcommands.
+func newRootCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "revlay",
+		Short: "Revlay is a simple and powerful deployment tool.",
+		Long: `A fast, reliable, and easy-to-use deployment tool that helps you
+automate the process of releasing your applications.`,
+		// Silence errors, we'll handle them in Execute()
+		SilenceErrors: true,
+		SilenceUsage:  true,
+	}
 
-// initConfig initializes the configuration
-func initConfig() {
-	// Initialize language first
-	i18n.InitLanguage(langFlag)
-	
-	// Update command descriptions with translated text
-	t := i18n.T()
-	rootCmd.Short = t.AppShortDesc
-	rootCmd.Long = t.AppLongDesc
-	rootCmd.PersistentFlags().Lookup("config").Usage = t.ConfigFileFlag
-	rootCmd.PersistentFlags().Lookup("lang").Usage = t.LanguageFlag
-	
-	if cfgFile == "" {
-		cfgFile = "revlay.yml"
-	}
-}
+	// Add all the commands
+	cmd.AddCommand(NewInitCommand())
+	cmd.AddCommand(NewDeployCommand())
+	cmd.AddCommand(NewRollbackCommand())
+	cmd.AddCommand(NewReleasesCommand())
+	cmd.AddCommand(NewStatusCommand())
+	cmd.AddCommand(NewPushCommand())
 
-// loadConfig loads the configuration file
-func loadConfig() (*config.Config, error) {
-	t := i18n.T()
-	if _, err := os.Stat(cfgFile); os.IsNotExist(err) {
-		return nil, fmt.Errorf(t.ErrorConfigNotFound, cfgFile)
-	}
-	
-	cfg, err := config.LoadConfig(cfgFile)
-	if err != nil {
-		return nil, fmt.Errorf(t.ErrorConfigLoad, err)
-	}
-	
-	return cfg, nil
-}
+	// Add a persistent flag for the config file to the root command.
+	// This makes it available to all subcommands.
+	cmd.PersistentFlags().StringP("config", "c", "", "Path to config file (default is revlay.yml)")
+
+	return cmd
+} 

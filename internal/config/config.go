@@ -20,27 +20,17 @@ const (
 
 // Config represents the main configuration structure for revlay.yml
 type Config struct {
+	// RootPath is the directory containing the revlay.yml file. It's set at runtime.
+	RootPath string `yaml:"-"`
+
 	// Application configuration
 	App struct {
 		Name        string `yaml:"name"`
-		Repository  string `yaml:"repository"`
-		Branch      string `yaml:"branch"`
 		KeepReleases int    `yaml:"keep_releases"`
 	} `yaml:"app"`
 
-	// Server configuration
-	Server struct {
-		Host     string `yaml:"host"`
-		User     string `yaml:"user"`
-		Port     int    `yaml:"port"`
-		Password string `yaml:"password,omitempty"`
-		KeyFile  string `yaml:"key_file,omitempty"`
-	} `yaml:"server"`
-
 	// Deployment configuration
 	Deploy struct {
-		Path        string            `yaml:"path"`
-		SharedPaths []string          `yaml:"shared_paths"`
 		Environment map[string]string `yaml:"environment"`
 		Mode        DeploymentMode    `yaml:"mode"`
 	} `yaml:"deploy"`
@@ -48,7 +38,7 @@ type Config struct {
 	// Service management configuration
 	Service struct {
 		// Service command to manage (e.g., "systemctl restart myapp")
-		Command string `yaml:"command"`
+		RestartCommand string `yaml:"restart_command"`
 		// Port the service runs on
 		Port int `yaml:"port"`
 		// Alternative port for blue-green deployment
@@ -75,49 +65,29 @@ func DefaultConfig() *Config {
 	return &Config{
 		App: struct {
 			Name        string `yaml:"name"`
-			Repository  string `yaml:"repository"`
-			Branch      string `yaml:"branch"`
 			KeepReleases int    `yaml:"keep_releases"`
 		}{
 			Name:        "myapp",
-			Repository:  "",
-			Branch:      "main",
 			KeepReleases: 5,
 		},
-		Server: struct {
-			Host     string `yaml:"host"`
-			User     string `yaml:"user"`
-			Port     int    `yaml:"port"`
-			Password string `yaml:"password,omitempty"`
-			KeyFile  string `yaml:"key_file,omitempty"`
-		}{
-			Host:    "localhost",
-			User:    "deploy",
-			Port:    22,
-			KeyFile: "~/.ssh/id_rsa",
-		},
 		Deploy: struct {
-			Path        string            `yaml:"path"`
-			SharedPaths []string          `yaml:"shared_paths"`
 			Environment map[string]string `yaml:"environment"`
 			Mode        DeploymentMode    `yaml:"mode"`
 		}{
-			Path:        "/opt/myapp",
-			SharedPaths: []string{"storage/logs", "storage/uploads"},
 			Environment: map[string]string{
 				"NODE_ENV": "production",
 			},
 			Mode: ZeroDowntimeMode,
 		},
 		Service: struct {
-			Command string `yaml:"command"`
+			RestartCommand string `yaml:"restart_command"`
 			Port int `yaml:"port"`
 			AltPort int `yaml:"alt_port"`
 			HealthCheck string `yaml:"health_check"`
 			RestartDelay int `yaml:"restart_delay"`
 			GracefulTimeout int `yaml:"graceful_timeout"`
 		}{
-			Command: "systemctl restart myapp",
+			RestartCommand: "systemctl restart myapp",
 			Port: 8080,
 			AltPort: 8081,
 			HealthCheck: "/health",
@@ -185,32 +155,15 @@ func (c *Config) Validate() error {
 	if c.App.Name == "" {
 		return fmt.Errorf("app.name is required")
 	}
-	if c.Server.Host == "" {
-		return fmt.Errorf("server.host is required")
-	}
-	if c.Server.User == "" {
-		return fmt.Errorf("server.user is required")
-	}
-	if c.Deploy.Path == "" {
-		return fmt.Errorf("deploy.path is required")
-	}
-	if c.Server.Port <= 0 || c.Server.Port > 65535 {
-		return fmt.Errorf("server.port must be between 1 and 65535")
-	}
-	if c.App.KeepReleases < 1 {
-		return fmt.Errorf("app.keep_releases must be at least 1")
-	}
-	
-	// Validate deployment mode
 	if c.Deploy.Mode != "" && c.Deploy.Mode != ZeroDowntimeMode && c.Deploy.Mode != ShortDowntimeMode {
 		return fmt.Errorf("deploy.mode must be 'zero_downtime' or 'short_downtime'")
 	}
-	
+
 	// Set default deployment mode if not specified
 	if c.Deploy.Mode == "" {
 		c.Deploy.Mode = ZeroDowntimeMode
 	}
-	
+
 	// Validate service configuration for zero downtime mode
 	if c.Deploy.Mode == ZeroDowntimeMode {
 		if c.Service.Port <= 0 || c.Service.Port > 65535 {
@@ -223,23 +176,23 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("service.port and service.alt_port must be different")
 		}
 	}
-	
+
 	return nil
 }
 
 // GetReleasesPath returns the path to the releases directory
 func (c *Config) GetReleasesPath() string {
-	return filepath.Join(c.Deploy.Path, "releases")
+	return filepath.Join(c.RootPath, "releases")
 }
 
 // GetSharedPath returns the path to the shared directory
 func (c *Config) GetSharedPath() string {
-	return filepath.Join(c.Deploy.Path, "shared")
+	return filepath.Join(c.RootPath, "shared")
 }
 
 // GetCurrentPath returns the path to the current symlink
 func (c *Config) GetCurrentPath() string {
-	return filepath.Join(c.Deploy.Path, "current")
+	return filepath.Join(c.RootPath, "current")
 }
 
 // GetReleasePathByName returns the path to a specific release

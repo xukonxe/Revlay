@@ -3,136 +3,69 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/xukonxe/revlay/internal/config"
-	"github.com/xukonxe/revlay/internal/i18n"
+	"github.com/xukonxe/revlay/internal/color"
 )
 
-var initCmd = &cobra.Command{
-	Use:   "init",
-	Short: "",
-	Long:  ``,
-	RunE: runInit,
-}
+// NewInitCommand creates the `revlay init` command.
+func NewInitCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "init [app-name]",
+		Short: "Initialize a new revlay project",
+		Long:  `Creates a new revlay.yml configuration file in a directory for your application.`,
+		Args:  cobra.MaximumNArgs(1),
+		RunE:  runInit,
+	}
 
-var (
-	initAppName    string
-	initRepository string
-	initHost       string
-	initUser       string
-	initPath       string
-	initForce      bool
-)
+	cmd.Flags().StringP("dir", "d", ".", "Base directory where the application folder will be created")
+	cmd.Flags().BoolP("force", "f", false, "Overwrite existing revlay.yml if it exists")
 
-func init() {
-	// Command descriptions will be updated in initConfig
-	initCmd.Flags().StringVarP(&initAppName, "name", "n", "", "")
-	initCmd.Flags().StringVarP(&initRepository, "repo", "r", "", "Repository URL")
-	initCmd.Flags().StringVarP(&initHost, "host", "H", "", "")
-	initCmd.Flags().StringVarP(&initUser, "user", "u", "", "")
-	initCmd.Flags().StringVarP(&initPath, "path", "p", "", "")
-	initCmd.Flags().BoolVarP(&initForce, "force", "f", false, "Overwrite existing config file")
-	
-	// Update command descriptions when config is initialized
-	cobra.OnInitialize(func() {
-		t := i18n.T()
-		initCmd.Short = t.InitShortDesc
-		initCmd.Long = t.InitLongDesc
-		initCmd.Flags().Lookup("name").Usage = t.InitNameFlag
-		initCmd.Flags().Lookup("host").Usage = t.InitHostFlag
-		initCmd.Flags().Lookup("user").Usage = t.InitUserFlag
-		initCmd.Flags().Lookup("path").Usage = t.InitPathFlag
-	})
+	return cmd
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
-	t := i18n.T()
-	
-	// Check if config file already exists
-	if _, err := os.Stat(cfgFile); err == nil && !initForce {
-		return fmt.Errorf("config file %s already exists, use --force to overwrite", cfgFile)
+	baseDir, _ := cmd.Flags().GetString("dir")
+	force, _ := cmd.Flags().GetBool("force")
+
+	appName := ""
+	if len(args) > 0 {
+		appName = args[0]
 	}
 
-	// Create default config
 	cfg := config.DefaultConfig()
 
-	// Apply command line overrides
-	if initAppName != "" {
-		cfg.App.Name = initAppName
-	}
-	if initRepository != "" {
-		cfg.App.Repository = initRepository
-	}
-	if initHost != "" {
-		cfg.Server.Host = initHost
-	}
-	if initUser != "" {
-		cfg.Server.User = initUser
-	}
-	if initPath != "" {
-		cfg.Deploy.Path = initPath
+	if appName != "" {
+		cfg.App.Name = appName
 	}
 
-	// Interactive configuration if no flags provided
-	if initAppName == "" && initRepository == "" && initHost == "" && initUser == "" && initPath == "" {
-		if err := interactiveConfig(cfg); err != nil {
-			return fmt.Errorf(t.InitFailed, err)
+	if cfg.App.Name == "" {
+		fmt.Print("Please enter the name of your application: ")
+		_, _ = fmt.Scanln(&cfg.App.Name)
+		if cfg.App.Name == "" {
+			return fmt.Errorf("application name cannot be empty")
 		}
 	}
 
-	// Save config
-	if err := config.SaveConfig(cfg, cfgFile); err != nil {
-		return fmt.Errorf(t.InitFailed, err)
+	// Create project directory inside the base directory
+	projectDir := filepath.Join(baseDir, cfg.App.Name)
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		return fmt.Errorf("failed to create project directory at %s: %w", projectDir, err)
 	}
 
-	fmt.Printf(t.InitSuccess+"\n", cfgFile)
-	
-	return nil
-}
+	configPath := filepath.Join(projectDir, "revlay.yml")
 
-func interactiveConfig(cfg *config.Config) error {
-	t := i18n.T()
-	
-	fmt.Println("Interactive configuration:")
-	fmt.Println("Press Enter to use default values shown in [brackets]")
-	fmt.Println()
-
-	// Application name
-	fmt.Printf("%s [%s]: ", t.InitPromptName, cfg.App.Name)
-	var input string
-	fmt.Scanln(&input)
-	if input != "" {
-		cfg.App.Name = input
+	if _, err := os.Stat(configPath); err == nil && !force {
+		return fmt.Errorf("configuration file '%s' already exists. Use --force to overwrite", configPath)
 	}
 
-	// Repository
-	fmt.Printf("Repository URL [%s]: ", cfg.App.Repository)
-	fmt.Scanln(&input)
-	if input != "" {
-		cfg.App.Repository = input
+	if err := config.SaveConfig(cfg, configPath); err != nil {
+		return fmt.Errorf("failed to save configuration: %w", err)
 	}
 
-	// Server host
-	fmt.Printf("%s [%s]: ", t.InitPromptHost, cfg.Server.Host)
-	fmt.Scanln(&input)
-	if input != "" {
-		cfg.Server.Host = input
-	}
-
-	// SSH user
-	fmt.Printf("%s [%s]: ", t.InitPromptUser, cfg.Server.User)
-	fmt.Scanln(&input)
-	if input != "" {
-		cfg.Server.User = input
-	}
-
-	// Deployment path
-	fmt.Printf("%s [%s]: ", t.InitPromptPath, cfg.Deploy.Path)
-	fmt.Scanln(&input)
-	if input != "" {
-		cfg.Deploy.Path = input
-	}
-
+	fmt.Println(color.Green("✔ Revlay project initialized successfully!"))
+	fmt.Printf("Configuration file created at: %s\n", color.Cyan(configPath))
 	return nil
 }
