@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/xukonxe/revlay/internal/color"
+	"github.com/xukonxe/revlay/internal/ssh"
 )
 
 // NewPushCommand creates the `revlay push` command.
@@ -48,18 +50,51 @@ func runPush(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Printf("Parsed destination: user='%s', host='%s'\n", user, host)
-	fmt.Printf("Source directory: %s\n", sourceDir)
-	fmt.Printf("Target application: %s\n", appName)
+	fmt.Println(color.Cyan("🚀 Starting push to %s for app '%s'...", destination, appName))
 
+	client := ssh.NewClient(user, host)
 
-	fmt.Println("\nPhase 2: Push command logic coming soon!")
-	fmt.Println("Next steps:")
-	fmt.Println("1. [Done] Parse destination string.")
-	fmt.Println("2. Use SSH to check if 'revlay' is installed on the remote server.")
-	fmt.Println("3. Use rsync to copy the source directory to a temporary location on the server.")
-	fmt.Println("4. Execute 'revlay deploy --from-dir' on the server to start the deployment.")
-	fmt.Println("5. Clean up the temporary directory on the server.")
+	// Step 1: Pre-flight check - verify revlay is on remote
+	fmt.Println(color.Cyan("🔎 Checking remote environment..."))
+	if _, err := client.RunCommand("command -v revlay"); err != nil {
+		return fmt.Errorf("revlay not found on the remote server. Please ensure it's installed and in the user's PATH")
+	}
+	fmt.Println(color.Green("✅ Remote 'revlay' command found."))
+
+	// Step 2: Create a temporary directory on the remote server
+	fmt.Println(color.Cyan("📁 Creating temporary directory on remote..."))
+	remoteTempDir, err := client.RunCommand("mktemp -d")
+	if err != nil {
+		return fmt.Errorf("failed to create temporary directory on remote: %w", err)
+	}
+	remoteTempDir = strings.TrimSpace(remoteTempDir)
+	fmt.Println(color.Green("✅ Created temporary directory: %s", remoteTempDir))
+
+	// Defer cleanup of the temporary directory
+	defer func() {
+		fmt.Println(color.Cyan("\n🧹 Cleaning up temporary directory on remote..."))
+		if _, err := client.RunCommand(fmt.Sprintf("rm -rf %s", remoteTempDir)); err != nil {
+			fmt.Println(color.Red("⚠️ Failed to clean up temporary directory %s: %v", remoteTempDir, err))
+		} else {
+			fmt.Println(color.Green("✅ Cleanup complete."))
+		}
+	}()
+
+	// Step 3: Use rsync to push files
+	fmt.Println(color.Cyan("🚚 Syncing files to %s...", remoteTempDir))
+	if err := client.Rsync(sourceDir, remoteTempDir); err != nil {
+		return fmt.Errorf("failed to rsync files: %w", err)
+	}
+	fmt.Println(color.Green("✅ File sync completed successfully."))
+
+	// Step 4: Execute remote deploy
+	fmt.Println(color.Cyan("🚢 Triggering remote deployment for app '%s'...", appName))
+	deployCommand := fmt.Sprintf("revlay deploy --from-dir %s %s", remoteTempDir, appName)
+	if err := client.RunCommandStream(deployCommand); err != nil {
+		return fmt.Errorf("remote deployment failed: %w", err)
+	}
+
+	fmt.Println(color.Green("\n🎉 Push and deploy completed successfully!"))
 
 	return nil
 }
