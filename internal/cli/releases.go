@@ -4,16 +4,17 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/xukonxe/revlay/internal/deployment"
 	"github.com/xukonxe/revlay/internal/color"
+	"github.com/xukonxe/revlay/internal/deployment"
+	"github.com/xukonxe/revlay/internal/i18n"
 )
 
 // NewReleasesCommand creates the `revlay releases` command.
 func NewReleasesCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "releases",
-		Short: "Lists all available releases",
-		Long:  `Scans the releases directory and lists all previously deployed release versions.`,
+		Short: i18n.T().ReleasesShortDesc,
+		Long:  i18n.T().ReleasesLongDesc,
 		RunE:  runReleases,
 	}
 	return cmd
@@ -29,20 +30,20 @@ func runReleases(cmd *cobra.Command, args []string) error {
 	deployer := deployment.NewLocalDeployer(cfg)
 	releases, err := deployer.ListReleases()
 	if err != nil {
-		return fmt.Errorf("failed to list releases: %w", err)
+		return fmt.Errorf(i18n.T().ErrorReleasesList, err)
 	}
 
 	if len(releases) == 0 {
-		fmt.Println("No releases found.")
+		fmt.Println(i18n.T().ReleasesNoReleases)
 		return nil
 	}
 
 	currentRelease, _ := deployer.GetCurrentRelease()
 
-	fmt.Printf("Available releases for '%s':\n", color.Cyan(cfg.App.Name))
+	fmt.Println(i18n.T().ReleasesListHeader)
 	for _, release := range releases {
 		if release == currentRelease {
-			fmt.Printf("  - %s %s\n", color.Green(release), color.Yellow("(current)"))
+			fmt.Printf("  - %s%s\n", color.Green(release), color.Yellow(i18n.T().ReleasesCurrent))
 		} else {
 			fmt.Printf("  - %s\n", release)
 		}

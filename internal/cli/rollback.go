@@ -4,18 +4,18 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/xukonxe/revlay/internal/deployment"
 	"github.com/xukonxe/revlay/internal/color"
+	"github.com/xukonxe/revlay/internal/deployment"
+	"github.com/xukonxe/revlay/internal/i18n"
 )
 
 // NewRollbackCommand creates the `revlay rollback` command.
 func NewRollbackCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rollback [release-name]",
-		Short: "Rolls back to a previous release",
-		Long: `Switches the 'current' symlink to a specified previous release. 
-If no release name is provided, it rolls back to the second to last release.`,
-		RunE: runRollback,
+		Short: i18n.T().RollbackShortDesc,
+		Long:  i18n.T().RollbackLongDesc,
+		RunE:  runRollback,
 	}
 	return cmd
 }
@@ -38,21 +38,21 @@ func runRollback(cmd *cobra.Command, args []string) error {
 	if releaseName == "" {
 		releases, err := deployer.ListReleases()
 		if err != nil {
-			return fmt.Errorf("could not list releases to determine previous version: %w", err)
+			return fmt.Errorf(i18n.T().RollbackFailed, fmt.Sprintf("could not list releases to determine previous version: %v", err))
 		}
 		if len(releases) < 2 {
-			return fmt.Errorf("not enough releases to roll back to. At least two are required")
+			return fmt.Errorf(i18n.T().RollbackFailed, i18n.T().RollbackNoReleases)
 		}
 		releaseName = releases[len(releases)-2] // The second to last one
 	}
 
-	fmt.Printf("🔥 Rolling back to release: %s\n", color.Yellow(releaseName))
+	fmt.Printf(i18n.T().RollbackToRelease, color.Yellow(releaseName))
+	fmt.Println()
 
 	if err := deployer.Rollback(releaseName); err != nil {
-		return fmt.Errorf("rollback failed: %w", err)
+		return fmt.Errorf(i18n.T().RollbackFailed, err)
 	}
 
-	fmt.Println(color.Green("✅ Rollback successful!"))
-	fmt.Printf("   - Release '%s' is now live.\n", releaseName)
+	fmt.Println(color.Green(i18n.T().RollbackSuccess, releaseName))
 	return nil
 }

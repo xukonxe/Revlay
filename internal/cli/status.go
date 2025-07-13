@@ -7,14 +7,15 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/xukonxe/revlay/internal/color"
 	"github.com/xukonxe/revlay/internal/deployment"
+	"github.com/xukonxe/revlay/internal/i18n"
 )
 
 // NewStatusCommand creates the `revlay status` command.
 func NewStatusCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status",
-		Short: "Displays the current status of the deployment",
-		Long:  `Shows the currently active release and the symbolic link structure.`,
+		Short: i18n.T().StatusShortDesc,
+		Long:  i18n.T().StatusLongDesc,
 		RunE:  runStatus,
 	}
 	return cmd
@@ -30,16 +31,16 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	deployer := deployment.NewLocalDeployer(cfg)
 	currentRelease, err := deployer.GetCurrentRelease()
 	if err != nil {
-		return fmt.Errorf("could not get current release: %w", err)
+		return fmt.Errorf("could not get current release: %v", err)
 	}
 
-	fmt.Printf("Application: %s\n", color.Cyan(cfg.App.Name))
-	fmt.Printf("  - Path: %s\n", cfg.RootPath)
+	fmt.Printf(i18n.T().StatusAppName+"\n", color.Cyan(cfg.App.Name))
+	fmt.Printf(i18n.T().StatusDeployPath+"\n", cfg.RootPath)
 	if currentRelease == "" {
-		fmt.Printf("  - Status: %s\n", color.Yellow("No release is currently active"))
+		fmt.Printf("  - Status: %s\n", color.Yellow(i18n.T().StatusNoRelease))
 	} else {
 		fmt.Printf("  - Status: %s\n", color.Green("Active"))
-		fmt.Printf("  - Current Release: %s\n", color.Cyan(currentRelease))
+		fmt.Printf(i18n.T().StatusCurrentRelease+"\n", color.Cyan(currentRelease))
 	}
 
 	fmt.Println("\nDirectory Details:")

@@ -5,21 +5,21 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/xukonxe/revlay/internal/color"
 	"github.com/xukonxe/revlay/internal/config"
 	"github.com/xukonxe/revlay/internal/deployment"
-	"github.com/xukonxe/revlay/internal/color"
+	"github.com/xukonxe/revlay/internal/i18n"
 )
 
 func NewDeployCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "deploy [release-name]",
-		Short: "Deploys a new release to the application directory",
-		Long: `This command executes the deployment process based on the settings in revlay.yml.
-It creates a new release directory, runs deployment hooks, and atomically switches the 'current' symlink.`,
-		RunE: runDeploy,
+		Short: i18n.T().DeployShortDesc,
+		Long:  i18n.T().DeployLongDesc,
+		RunE:  runDeploy,
 	}
 
-	cmd.Flags().BoolP("dry-run", "d", false, "Simulate deployment without making any changes")
+	cmd.Flags().BoolP("dry-run", "d", false, i18n.T().DeployDryRunFlag)
 	cmd.Flags().String("from-dir", "", "Deploy from a specific directory instead of an empty one")
 
 	return cmd
@@ -42,58 +42,58 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		releaseName = deployment.GenerateReleaseTimestamp()
 	}
 
-	fmt.Println(color.Green("🚀 Starting deployment of release: %s", releaseName))
+	fmt.Println(color.Green(i18n.T().DeployStarting, releaseName))
 
 	if dryRun {
-		fmt.Println(color.Yellow("== Dry Run Mode: No changes will be made =="))
+		fmt.Println(color.Yellow(i18n.T().DeployDryRunMode))
 		return runDeployDryRun(cfg, releaseName)
 	}
 
 	deployer := deployment.NewLocalDeployer(cfg)
 
-	fmt.Println(color.Cyan("   - Deployment in progress..."))
+	fmt.Println(color.Cyan(i18n.T().DeployInProgress))
 	if err := deployer.Deploy(releaseName, fromDir); err != nil {
-		return fmt.Errorf("deployment failed: %w", err)
+		return fmt.Errorf(i18n.T().DeployFailed, err)
 	}
 
-	fmt.Println(color.Green("✅ Deployment successful!"))
-	fmt.Printf("   - Release '%s' is now live in '%s'\n", releaseName, cfg.RootPath)
+	fmt.Println(color.Green(i18n.T().DeploySuccess))
+	fmt.Printf(i18n.T().DeployReleaseLive, releaseName, cfg.RootPath)
 
 	return nil
 }
 
 func runDeployDryRun(cfg *config.Config, releaseName string) error {
-	fmt.Println("Deployment Plan:")
-	fmt.Printf("  - Application: %s\n", cfg.App.Name)
-	fmt.Printf("  - Release: %s\n", releaseName)
-	fmt.Printf("  - Deploy Path: %s\n", cfg.RootPath)
-	fmt.Printf("  - Releases Path: %s\n", cfg.GetReleasesPath())
-	fmt.Printf("  - Shared Path: %s\n", cfg.GetSharedPath())
-	fmt.Printf("  - Current Path: %s\n", cfg.GetCurrentPath())
-	fmt.Printf("  - Path for this release: %s\n", cfg.GetReleasePathByName(releaseName))
+	fmt.Println(i18n.T().DryRunPlan)
+	fmt.Printf("  - %s: %s\n", i18n.T().DryRunApplication, cfg.App.Name)
+	fmt.Printf("  - %s: %s\n", i18n.T().DryRunRelease, releaseName)
+	fmt.Printf("  - %s: %s\n", i18n.T().DryRunDeployPath, cfg.RootPath)
+	fmt.Printf("  - %s: %s\n", i18n.T().DryRunReleasesPath, cfg.GetReleasesPath())
+	fmt.Printf("  - %s: %s\n", i18n.T().DryRunSharedPath, cfg.GetSharedPath())
+	fmt.Printf("  - %s: %s\n", i18n.T().DryRunCurrentPath, cfg.GetCurrentPath())
+	fmt.Printf("  - %s: %s\n", i18n.T().DryRunReleasePathFmt, cfg.GetReleasePathByName(releaseName))
 
-	fmt.Println("\nDirectory Structure:")
+	fmt.Println("\n" + i18n.T().DryRunDirStructure)
 	fmt.Printf("  %s/\n", filepath.Base(cfg.RootPath))
 	fmt.Printf("  ├── releases/\n")
 	fmt.Printf("  │   └── %s/ (new release directory)\n", releaseName)
 	fmt.Printf("  ├── shared/\n")
 	fmt.Printf("  └── current -> releases/%s (atomic symlink switch)\n", releaseName)
 
-	fmt.Println("\nHooks:")
+	fmt.Println("\n" + i18n.T().DryRunHooks + ":")
 	if len(cfg.Hooks.PreDeploy) > 0 {
-		fmt.Println("  Pre-Deploy:")
+		fmt.Println("  " + i18n.T().DryRunPreDeploy + ":")
 		for _, hook := range cfg.Hooks.PreDeploy {
 			fmt.Printf("    - %s\n", hook)
 		}
 	}
 	if len(cfg.Hooks.PostDeploy) > 0 {
-		fmt.Println("  Post-Deploy:")
+		fmt.Println("  " + i18n.T().DryRunPostDeploy + ":")
 		for _, hook := range cfg.Hooks.PostDeploy {
 			fmt.Printf("    - %s\n", hook)
 		}
 	}
 
-	fmt.Printf("\nKeep Releases: %d\n", cfg.App.KeepReleases)
-	
+	fmt.Printf("\n" + i18n.Sprintf(i18n.T().DryRunKeepReleases, cfg.App.KeepReleases) + "\n")
+
 	return nil
 }
