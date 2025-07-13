@@ -48,7 +48,7 @@ func (d *LocalDeployer) runLocalCommand(name string, arg ...string) (string, err
 	fmt.Println(color.Cyan("  -> Executing: %s %s", name, strings.Join(arg, " ")))
 	cmd := exec.Command(name, arg...)
 	cmd.Dir = d.config.GetReleasePathByName("") // Fallback directory
-	
+
 	// If a specific release path exists, run the command there.
 	// This part needs context, assuming release path is created before running commands inside it.
 	// For now, let's keep it simple. A better approach might be to pass the releaseName.
@@ -106,7 +106,7 @@ func (d *LocalDeployer) Deploy(releaseName string, sourceDir string) error {
 			}
 		}
 	}
-	
+
 	// 5. Switch symlink
 	fmt.Println(color.Cyan("Step 5: Activating new release..."))
 	if err := d.switchSymlink(releaseName); err != nil {
@@ -191,7 +191,6 @@ func (d *LocalDeployer) ListReleases() ([]string, error) {
 	return releases, nil
 }
 
-
 // Prune removes old releases according to the keep_releases setting.
 func (d *LocalDeployer) Prune() error {
 	keep := d.config.App.KeepReleases
@@ -212,7 +211,7 @@ func (d *LocalDeployer) Prune() error {
 
 	var releasesToRemove []string
 	currentReleaseName, _ := d.GetCurrentRelease()
-	
+
 	// How many releases we can safely remove
 	canRemoveCount := len(releases) - keep
 
@@ -227,7 +226,7 @@ func (d *LocalDeployer) Prune() error {
 		releasesToRemove = append(releasesToRemove, release)
 		canRemoveCount--
 	}
-	
+
 	for _, release := range releasesToRemove {
 		fmt.Printf("Pruning old release: %s\n", release)
 		if err := os.RemoveAll(filepath.Join(d.config.GetReleasesPath(), release)); err != nil {
@@ -277,7 +276,7 @@ func (d *LocalDeployer) waitForService(port int) error {
 		time.Sleep(2 * time.Second) // wait before next retry
 	}
 
-	return fmt.Errorf("service not responding after %d attempts", maxRetries)
+	return fmt.Errorf("service not responding after %d attempts, please check the service is running and the health check is working, or check config.yml for the health check url", maxRetries)
 }
 
 func (d *LocalDeployer) setupDirectories() error {
@@ -338,5 +337,5 @@ func (d *LocalDeployer) switchSymlink(releaseName string) error {
 
 // GenerateReleaseTimestamp creates a timestamp string for a release.
 func GenerateReleaseTimestamp() string {
-	return time.Now().Format("20060102150405")
+	return time.Now().Format("20060102-150405")
 }

@@ -9,19 +9,26 @@ import (
 	"github.com/xukonxe/revlay/internal/color"
 )
 
-// Client represents an SSH client for a specific host.
-type Client struct {
+// Client defines the interface for an SSH client.
+type Client interface {
+	RunCommand(command string) (string, error)
+	RunCommandStream(command string) error
+	Rsync(sourceDir, remoteDir string) error
+}
+
+// sshClient implements the Client interface for a specific host.
+type sshClient struct {
 	User string
 	Host string
 }
 
 // NewClient creates a new SSH client.
-func NewClient(user, host string) *Client {
-	return &Client{User: user, Host: host}
+func NewClient(user, host string) Client {
+	return &sshClient{User: user, Host: host}
 }
 
 // buildArgs constructs the arguments for the ssh command.
-func (c *Client) buildArgs(remoteCommand string) []string {
+func (c *sshClient) buildArgs(remoteCommand string) []string {
 	dest := c.Host
 	if c.User != "" {
 		dest = fmt.Sprintf("%s@%s", c.User, c.Host)
@@ -30,7 +37,7 @@ func (c *Client) buildArgs(remoteCommand string) []string {
 }
 
 // RunCommand executes a command on the remote host via SSH.
-func (c *Client) RunCommand(command string) (string, error) {
+func (c *sshClient) RunCommand(command string) (string, error) {
 	args := c.buildArgs(command)
 	fmt.Println(color.Cyan("  -> Running on remote: ssh %s", strings.Join(args, " ")))
 
@@ -43,7 +50,7 @@ func (c *Client) RunCommand(command string) (string, error) {
 }
 
 // RunCommandStream executes a command on the remote host via SSH and streams the output.
-func (c *Client) RunCommandStream(command string) error {
+func (c *sshClient) RunCommandStream(command string) error {
 	args := c.buildArgs(command)
 	fmt.Println(color.Cyan("  -> Running on remote: ssh %s", strings.Join(args, " ")))
 
@@ -58,7 +65,7 @@ func (c *Client) RunCommandStream(command string) error {
 }
 
 // Rsync copies a local directory to a remote host.
-func (c *Client) Rsync(sourceDir, remoteDir string) error {
+func (c *sshClient) Rsync(sourceDir, remoteDir string) error {
 	dest := fmt.Sprintf("%s:%s", c.Host, remoteDir)
 	if c.User != "" {
 		dest = fmt.Sprintf("%s@%s:%s", c.User, c.Host, remoteDir)
@@ -70,10 +77,10 @@ func (c *Client) Rsync(sourceDir, remoteDir string) error {
 	}
 
 	args := []string{
-		"-r",         // Recursive
-		"-a",         // Archive mode (preserves permissions, etc.)
-		"--verbose",  // Show what's happening
-		"--delete",   // Delete files on the destination that don't exist on the source
+		"-r",        // Recursive
+		"-a",        // Archive mode (preserves permissions, etc.)
+		"--verbose", // Show what's happening
+		"--delete",  // Delete files on the destination that don't exist on the source
 		sourceDir,
 		dest,
 	}

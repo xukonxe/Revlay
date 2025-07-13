@@ -9,6 +9,14 @@ import (
 	"github.com/xukonxe/revlay/internal/ssh"
 )
 
+var (
+	// newSSHClient is a factory function for creating an ssh.Client.
+	// It's a variable so it can be replaced in tests.
+	newSSHClient = func(user, host string) ssh.Client {
+		return ssh.NewClient(user, host)
+	}
+)
+
 // NewPushCommand creates the `revlay push` command.
 func NewPushCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -52,7 +60,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 
 	fmt.Println(color.Cyan("🚀 Starting push to %s for app '%s'...", destination, appName))
 
-	client := ssh.NewClient(user, host)
+	client := newSSHClient(user, host)
 
 	// Step 1: Pre-flight check - verify revlay is on remote
 	fmt.Println(color.Cyan("🔎 Checking remote environment..."))
@@ -102,6 +110,10 @@ func runPush(cmd *cobra.Command, args []string) error {
 // parseDestination splits a destination string like "user@host" into user and host.
 // If user is not provided, it defaults to the current user.
 func parseDestination(dest string) (user, host string, err error) {
+	if dest == "" {
+		return "", "", fmt.Errorf("destination cannot be empty")
+	}
+
 	if !strings.Contains(dest, "@") {
 		// If no user is specified, we could default to the current OS user,
 		// but for now, let's keep it simple and just use the host.
@@ -114,4 +126,4 @@ func parseDestination(dest string) (user, host string, err error) {
 		return "", "", fmt.Errorf("invalid destination format: '%s'. Expected 'user@host' or 'host'", dest)
 	}
 	return parts[0], parts[1], nil
-} 
+}
