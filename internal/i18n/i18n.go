@@ -29,9 +29,10 @@ type Messages struct {
 	InitFailed        string
 	InitNameFlag      string
 	InitPathFlag      string
-	InitDirectoryFlag string // I'm adding this line
+	InitDirectoryFlag string
 	InitPromptName    string
 	InitPromptPath    string
+	InitForceFlag     string
 
 	// Deploy Command
 	DeployShortDesc   string
@@ -46,6 +47,7 @@ type Messages struct {
 	DeployDryRunFlag  string
 	DeployReleaseLive string
 	DeployDryRunPlan  string
+	DeployFromDirFlag string
 
 	// Rollback Command
 	RollbackShortDesc  string
@@ -66,13 +68,16 @@ type Messages struct {
 	ErrorReleasesList  string
 
 	// Status Command
-	StatusShortDesc      string
-	StatusLongDesc       string
-	StatusCurrentRelease string
-	StatusNoRelease      string
-	StatusAppName        string
-	StatusDeployPath     string
-	StatusServerInfo     string
+	StatusShortDesc        string
+	StatusLongDesc         string
+	StatusCurrentRelease   string
+	StatusNoRelease        string
+	StatusAppName          string
+	StatusDeployPath       string
+	StatusServerInfo       string
+	StatusActive           string
+	StatusDirectoryDetails string
+	StatusDirFailed        string
 
 	// Push Command
 	PushShortDesc        string
@@ -89,6 +94,43 @@ type Messages struct {
 	PushSyncComplete     string
 	PushTriggeringDeploy string
 	PushComplete         string
+
+	// Deployment Steps
+	DeploySetupDirs           string
+	DeployEnsuringDir         string
+	DeployPopulatingDir       string
+	DeployMovingContent       string
+	DeployRenameFailed        string
+	DeployCreatedEmpty        string
+	DeployEmptyNote           string
+	DeployLinkingShared       string
+	DeployLinking             string
+	DeployPreHooks            string
+	DeployActivating          string
+	DeployPointingSymlink     string
+	DeployRestartingService   string
+	DeployHealthCheck         string
+	DeployHealthAttempt       string
+	DeployHealthFailed        string
+	DeployHealthPassed        string
+	DeployPostHooks           string
+	DeployPruning             string
+	DeployPruningRelease      string
+	DeployCmdExecFailed       string
+	DeployZeroDowntimeWarning string
+	DeployRollbackStart       string
+	DeployRollbackSuccess     string
+	DeployNoReleasesFound     string
+
+	// SSH Messages
+	SSHRunningRemote string
+	SSHCommandFailed string
+	SSHStreamFailed  string
+	SSHRsyncCommand  string
+	SSHRsyncFailed   string
+
+	// Agent Messages
+	AgentRunning string
 
 	// Dry Run Messages
 	DryRunPlan           string
@@ -150,6 +192,7 @@ var chineseMessages = Messages{
 	InitPromptPath:    "部署路径",
 	InitFailed:        "初始化失败: %v",
 	InitSuccess:       "配置文件已创建于 %s",
+	InitForceFlag:     "覆盖已存在的 revlay.yml 文件",
 
 	// deploy command
 	DeployShortDesc:   "部署新版本",
@@ -164,6 +207,7 @@ var chineseMessages = Messages{
 	DeployDryRunFlag:  "显示将要执行的操作，但不实际部署",
 	DeployReleaseLive: "✓ 版本 %s 已在 %s 上线",
 	DeployDryRunPlan:  "部署计划:",
+	DeployFromDirFlag: "从指定目录部署，而不是创建空目录",
 
 	// releases command
 	ReleasesShortDesc:  "列出所有已部署的版本",
@@ -184,13 +228,16 @@ var chineseMessages = Messages{
 	RollbackNoReleases: "没有找到可回滚的版本",
 
 	// Status Command
-	StatusShortDesc:      "显示部署状态",
-	StatusLongDesc:       "显示当前部署的版本和其他状态信息。",
-	StatusCurrentRelease: "当前版本：%s",
-	StatusNoRelease:      "没有激活的版本",
-	StatusAppName:        "应用名称：%s",
-	StatusDeployPath:     "部署路径：%s",
-	StatusServerInfo:     "服务器：%s@%s:%d",
+	StatusShortDesc:        "显示部署状态",
+	StatusLongDesc:         "显示当前部署的版本和其他状态信息。",
+	StatusCurrentRelease:   "当前版本：%s",
+	StatusNoRelease:        "没有激活的版本",
+	StatusAppName:          "应用名称：%s",
+	StatusDeployPath:       "部署路径：%s",
+	StatusServerInfo:       "服务器：%s@%s:%d",
+	StatusActive:           "激活",
+	StatusDirectoryDetails: "目录详情：",
+	StatusDirFailed:        "  - 无法获取目录详情：%v",
 
 	// Push Command
 	PushShortDesc:        "推送本地目录到远程服务器并部署",
@@ -207,6 +254,43 @@ var chineseMessages = Messages{
 	PushSyncComplete:     "✅ 文件同步成功完成。",
 	PushTriggeringDeploy: "🚢 正在为应用 '%s' 触发远程部署...",
 	PushComplete:         "\n🎉 推送和部署成功完成！",
+
+	// Deployment Steps
+	DeploySetupDirs:           "步骤 1: 设置目录...",
+	DeployEnsuringDir:         "  - 确保目录存在: %s",
+	DeployPopulatingDir:       "步骤 2: 填充版本目录...",
+	DeployMovingContent:       "  - 从 %s 移动内容",
+	DeployRenameFailed:        "  - 重命名失败，改为复制...",
+	DeployCreatedEmpty:        "  - 已创建空版本目录: %s",
+	DeployEmptyNote:           "  - 注意: 未指定源目录。使用部署前钩子来填充此目录。",
+	DeployLinkingShared:       "步骤 3: 链接共享路径...",
+	DeployLinking:             "  - 链接: %s -> %s",
+	DeployPreHooks:            "步骤 4: 运行部署前钩子...",
+	DeployActivating:          "步骤 5: 激活新版本...",
+	DeployPointingSymlink:     "  - 将'current'符号链接指向: %s",
+	DeployRestartingService:   "步骤 6: 重启服务...",
+	DeployHealthCheck:         "步骤 7: 执行健康检查...",
+	DeployHealthAttempt:       "  - 健康检查尝试 #%d 对 %s... ",
+	DeployHealthFailed:        "失败",
+	DeployHealthPassed:        "成功",
+	DeployPostHooks:           "步骤 8: 运行部署后钩子...",
+	DeployPruning:             "步骤 9: 清理旧版本...",
+	DeployPruningRelease:      "清理旧版本: %s",
+	DeployCmdExecFailed:       "命令执行失败: %s\n%s",
+	DeployZeroDowntimeWarning: "警告: 零停机部署目前是简化版，行为与标准部署相同。",
+	DeployRollbackStart:       "正在回滚到版本 %s...",
+	DeployRollbackSuccess:     "回滚成功。",
+	DeployNoReleasesFound:     "未找到任何版本。",
+
+	// SSH Messages
+	SSHRunningRemote: "  -> 在远程运行: ssh %s",
+	SSHCommandFailed: "ssh命令失败: %w\n输出: %s",
+	SSHStreamFailed:  "ssh流命令失败: %w",
+	SSHRsyncCommand:  "  -> 运行: rsync %s",
+	SSHRsyncFailed:   "rsync命令失败: %w",
+
+	// Agent Messages
+	AgentRunning: "Revlay Agent 正在运行...",
 
 	DryRunPlan:           "📋 部署计划：",
 	DryRunApplication:    "应用",
@@ -261,6 +345,7 @@ var englishMessages = Messages{
 	InitPromptPath:    "Deployment path",
 	InitFailed:        "Initialization failed: %v",
 	InitSuccess:       "Configuration file created at %s",
+	InitForceFlag:     "Overwrite existing revlay.yml if it exists",
 
 	// deploy command
 	DeployShortDesc:   "Deploy the application to the server",
@@ -275,6 +360,7 @@ var englishMessages = Messages{
 	DeployDryRunFlag:  "Show what would be done without actually deploying",
 	DeployReleaseLive: "✓ Release %s is now live at %s",
 	DeployDryRunPlan:  "Deployment Plan:",
+	DeployFromDirFlag: "Deploy from a specific directory instead of an empty one",
 
 	// releases command
 	ReleasesShortDesc:  "List all deployed releases",
@@ -295,13 +381,16 @@ var englishMessages = Messages{
 	RollbackNoReleases: "No releases found to rollback to",
 
 	// Status Command
-	StatusShortDesc:      "Show the status of the deployment",
-	StatusLongDesc:       "Displays the current deployed release and other status information.",
-	StatusCurrentRelease: "Current release: %s",
-	StatusNoRelease:      "No active release",
-	StatusAppName:        "Application: %s",
-	StatusDeployPath:     "Deploy path: %s",
-	StatusServerInfo:     "Server: %s@%s:%d",
+	StatusShortDesc:        "Show the status of the deployment",
+	StatusLongDesc:         "Displays the current deployed release and other status information.",
+	StatusCurrentRelease:   "Current release: %s",
+	StatusNoRelease:        "No active release",
+	StatusAppName:          "Application: %s",
+	StatusDeployPath:       "Deploy path: %s",
+	StatusServerInfo:       "Server: %s@%s:%d",
+	StatusActive:           "Active",
+	StatusDirectoryDetails: "Directory Details:",
+	StatusDirFailed:        "  - Could not get directory details: %v",
 
 	// Push Command
 	PushShortDesc:        "Push local directory to remote and deploy",
@@ -318,6 +407,43 @@ var englishMessages = Messages{
 	PushSyncComplete:     "✅ File sync completed successfully.",
 	PushTriggeringDeploy: "🚢 Triggering remote deployment for app '%s'...",
 	PushComplete:         "\n🎉 Push and deploy completed successfully!",
+
+	// Deployment Steps
+	DeploySetupDirs:           "Step 1: Setting up directories...",
+	DeployEnsuringDir:         "  - Ensuring directory exists: %s",
+	DeployPopulatingDir:       "Step 2: Populating release directory...",
+	DeployMovingContent:       "  - Moving content from %s",
+	DeployRenameFailed:        "  - Rename failed, falling back to copy...",
+	DeployCreatedEmpty:        "  - Created empty release directory: %s",
+	DeployEmptyNote:           "  - Note: No source specified. Use pre_deploy hooks to populate this directory.",
+	DeployLinkingShared:       "Step 3: Linking shared paths...",
+	DeployLinking:             "  - Linking: %s -> %s",
+	DeployPreHooks:            "Step 4: Running pre-deploy hooks...",
+	DeployActivating:          "Step 5: Activating new release...",
+	DeployPointingSymlink:     "  - Pointing 'current' symlink to: %s",
+	DeployRestartingService:   "Step 6: Restarting service...",
+	DeployHealthCheck:         "Step 7: Performing health check...",
+	DeployHealthAttempt:       "  - Health check attempt #%d for %s... ",
+	DeployHealthFailed:        "Failed",
+	DeployHealthPassed:        "OK",
+	DeployPostHooks:           "Step 8: Running post-deploy hooks...",
+	DeployPruning:             "Step 9: Pruning old releases...",
+	DeployPruningRelease:      "Pruning old release: %s",
+	DeployCmdExecFailed:       "command execution failed: %s\n%s",
+	DeployZeroDowntimeWarning: "Warning: Zero-downtime deployment is currently simplified and acts like a standard deploy.",
+	DeployRollbackStart:       "Rolling back to release %s...",
+	DeployRollbackSuccess:     "Rollback successful.",
+	DeployNoReleasesFound:     "No releases found.",
+
+	// SSH Messages
+	SSHRunningRemote: "  -> Running on remote: ssh %s",
+	SSHCommandFailed: "ssh command failed: %w\nOutput: %s",
+	SSHStreamFailed:  "ssh stream command failed: %w",
+	SSHRsyncCommand:  "  -> Running: rsync %s",
+	SSHRsyncFailed:   "rsync command failed: %w",
+
+	// Agent Messages
+	AgentRunning: "Revlay Agent is running...",
 
 	DryRunPlan:           "📋 Deployment plan:",
 	DryRunApplication:    "Application",

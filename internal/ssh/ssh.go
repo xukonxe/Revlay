@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/xukonxe/revlay/internal/color"
+	"github.com/xukonxe/revlay/internal/i18n"
 )
 
 // Client defines the interface for an SSH client.
@@ -39,12 +40,12 @@ func (c *sshClient) buildArgs(remoteCommand string) []string {
 // RunCommand executes a command on the remote host via SSH.
 func (c *sshClient) RunCommand(command string) (string, error) {
 	args := c.buildArgs(command)
-	fmt.Println(color.Cyan("  -> Running on remote: ssh %s", strings.Join(args, " ")))
+	fmt.Println(color.Cyan(i18n.T().SSHRunningRemote, strings.Join(args, " ")))
 
 	cmd := exec.Command("ssh", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("ssh command failed: %w\nOutput: %s", err, string(output))
+		return "", fmt.Errorf(i18n.T().SSHCommandFailed, err, string(output))
 	}
 	return string(output), nil
 }
@@ -52,14 +53,14 @@ func (c *sshClient) RunCommand(command string) (string, error) {
 // RunCommandStream executes a command on the remote host via SSH and streams the output.
 func (c *sshClient) RunCommandStream(command string) error {
 	args := c.buildArgs(command)
-	fmt.Println(color.Cyan("  -> Running on remote: ssh %s", strings.Join(args, " ")))
+	fmt.Println(color.Cyan(i18n.T().SSHRunningRemote, strings.Join(args, " ")))
 
 	cmd := exec.Command("ssh", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("ssh stream command failed: %w", err)
+		return fmt.Errorf(i18n.T().SSHStreamFailed, err)
 	}
 	return nil
 }
@@ -85,13 +86,13 @@ func (c *sshClient) Rsync(sourceDir, remoteDir string) error {
 		dest,
 	}
 
-	fmt.Println(color.Cyan("  -> Running: rsync %s", strings.Join(args, " ")))
+	fmt.Println(color.Cyan(i18n.T().SSHRsyncCommand, strings.Join(args, " ")))
 	cmd := exec.Command("rsync", args...)
 	cmd.Stdout = os.Stdout // Pipe rsync output directly to our stdout
 	cmd.Stderr = os.Stderr // And stderr too
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("rsync command failed: %w", err)
+		return fmt.Errorf(i18n.T().SSHRsyncFailed, err)
 	}
 	return nil
 }

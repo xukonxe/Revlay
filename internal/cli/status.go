@@ -39,15 +39,15 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	if currentRelease == "" {
 		fmt.Printf("  - Status: %s\n", color.Yellow(i18n.T().StatusNoRelease))
 	} else {
-		fmt.Printf("  - Status: %s\n", color.Green("Active"))
+		fmt.Printf("  - Status: %s\n", color.Green(i18n.T().StatusActive))
 		fmt.Printf(i18n.T().StatusCurrentRelease+"\n", color.Cyan(currentRelease))
 	}
 
-	fmt.Println("\nDirectory Details:")
+	fmt.Println("\n" + i18n.T().StatusDirectoryDetails)
 	lsCmd := exec.Command("ls", "-l", cfg.RootPath)
 	output, err := lsCmd.Output()
 	if err != nil {
-		fmt.Printf("  - Could not get directory details: %v\n", err)
+		fmt.Printf(i18n.T().StatusDirFailed+"\n", err)
 	} else {
 		fmt.Printf("\n%s\n", string(output))
 	}

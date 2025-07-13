@@ -22,7 +22,7 @@ func NewInitCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringP("dir", "d", ".", i18n.T().InitDirectoryFlag)
-	cmd.Flags().BoolP("force", "f", false, "Overwrite existing revlay.yml if it exists")
+	cmd.Flags().BoolP("force", "f", false, i18n.T().InitForceFlag)
 
 	return cmd
 }

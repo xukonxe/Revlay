@@ -20,7 +20,7 @@ func NewDeployCommand() *cobra.Command {
 	}
 
 	cmd.Flags().BoolP("dry-run", "d", false, i18n.T().DeployDryRunFlag)
-	cmd.Flags().String("from-dir", "", "Deploy from a specific directory instead of an empty one")
+	cmd.Flags().String("from-dir", "", i18n.T().DeployFromDirFlag)
 
 	return cmd
 }

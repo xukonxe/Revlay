@@ -1,7 +1,11 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/xukonxe/revlay/internal/i18n"
+)
 
 func main() {
-	fmt.Println("Revlay Agent is running...")
+	fmt.Println(i18n.T().AgentRunning)
 }
