@@ -1,6 +1,7 @@
 package deployment
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"net/http"
@@ -8,7 +9,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/xukonxe/revlay/internal/color"
@@ -61,88 +64,166 @@ func (d *LocalDeployer) runLocalCommand(name string, arg ...string) (string, err
 	return string(output), nil
 }
 
-// Deploy performs a standard deployment on the local machine.
+// Deploy dispatches the deployment to the correct strategy based on config.
 func (d *LocalDeployer) Deploy(releaseName string, sourceDir string) error {
-	// 1. Setup directories
-	fmt.Println(color.Cyan(i18n.T().DeploySetupDirs))
-	if err := d.setupDirectories(); err != nil {
+	switch d.config.Deploy.Mode {
+	case config.ZeroDowntimeMode:
+		return d.deployZeroDowntime(releaseName, sourceDir)
+	case config.ShortDowntimeMode:
+		return d.deployShortDowntime(releaseName, sourceDir)
+	default:
+		log.Printf("Unknown deployment mode '%s', falling back to short_downtime.", d.config.Deploy.Mode)
+		return d.deployShortDowntime(releaseName, sourceDir)
+	}
+}
+
+func (d *LocalDeployer) deployShortDowntime(releaseName string, sourceDir string) error {
+	fmt.Println(color.Cyan(i18n.T().DeployExecShortDowntime))
+
+	// Step 1: Setup directories
+	fmt.Println(color.Cyan(i18n.T().DeployStep, 1, i18n.T().DeploySetupDirs))
+	if err := d.setupDirectoriesAndRelease(releaseName, sourceDir); err != nil {
 		return err
 	}
-
-	// 2. Create the release content
-	fmt.Println(color.Cyan(i18n.T().DeployPopulatingDir))
-	releasePath := d.config.GetReleasePathByName(releaseName)
-	if sourceDir != "" {
-		// Move content from source directory
-		fmt.Printf(i18n.T().DeployMovingContent+"\n", sourceDir)
-		if err := os.Rename(sourceDir, releasePath); err != nil {
-			// Fallback to copy if rename fails (e.g., across different filesystems)
-			fmt.Println(color.Yellow(i18n.T().DeployRenameFailed))
-			if _, err := d.runLocalCommand("cp", "-r", sourceDir, releasePath); err != nil {
-				return fmt.Errorf("failed to copy from source directory %s: %w", sourceDir, err)
-			}
-		}
-
-	} else {
-		// Create an empty directory
-		if err := os.MkdirAll(releasePath, 0755); err != nil {
-			return fmt.Errorf("failed to create release directory %s: %w", releasePath, err)
-		}
-		fmt.Printf(i18n.T().DeployCreatedEmpty+"\n", releasePath)
-		fmt.Println(color.Yellow(i18n.T().DeployEmptyNote))
-	}
-
-	// 3. Link shared paths
-	fmt.Println(color.Cyan(i18n.T().DeployLinkingShared))
 	if err := d.linkSharedPaths(releaseName); err != nil {
 		return err
 	}
 
-	// 4. Run pre-deploy hooks
-	if len(d.config.Hooks.PreDeploy) > 0 {
-		fmt.Println(color.Cyan(i18n.T().DeployPreHooks))
-		for _, hook := range d.config.Hooks.PreDeploy {
-			if _, err := d.runLocalCommand("sh", "-c", hook); err != nil {
-				return err
-			}
+	// Step 2: Stop the current service
+	fmt.Println(color.Cyan(i18n.T().DeployStep, 2, "Stopping current service..."))
+	if d.config.Service.StopCommand != "" {
+		env := map[string]string{"PORT": fmt.Sprintf("%d", d.config.Service.Port)}
+		if _, err := d.runCommandSync(releaseName, d.config.Service.StopCommand, env); err != nil {
+			log.Print(color.Yellow(fmt.Sprintf("Warning: failed to run stop command: %v.", err)))
 		}
 	}
 
-	// 5. Switch symlink
-	fmt.Println(color.Cyan(i18n.T().DeployActivating))
+	// Step 3: Activate new release
+	fmt.Println(color.Cyan(i18n.T().DeployStep, 3, i18n.T().DeployActivating))
 	if err := d.switchSymlink(releaseName); err != nil {
 		return err
 	}
 
-	// 6. Run restart command
-	if d.config.Service.RestartCommand != "" {
-		fmt.Println(color.Cyan(i18n.T().DeployRestartingService))
-		if _, err := d.runLocalCommand("sh", "-c", d.config.Service.RestartCommand); err != nil {
-			return fmt.Errorf("failed to run restart command: %w", err)
+	// Step 4: Start the new service
+	fmt.Println(color.Cyan(i18n.T().DeployStep, 4, "Starting new service..."))
+	if d.config.Service.StartCommand != "" {
+		env := map[string]string{"PORT": fmt.Sprintf("%d", d.config.Service.Port)}
+		if _, err := d.runCommandAsync(releaseName, d.config.Service.StartCommand, env); err != nil {
+			return fmt.Errorf("failed to run start command: %w", err)
 		}
 	}
 
-	// 7. Perform health check
-	if d.config.Service.HealthCheck != "" {
-		fmt.Println(color.Cyan(i18n.T().DeployHealthCheck))
-		if err := d.waitForService(d.config.Service.Port); err != nil {
-			return fmt.Errorf("health check failed after restart: %w", err)
-		}
-		fmt.Println(color.Green("  - " + i18n.T().DeployHealthPassed + "."))
+	// Step 5: Perform health check
+	fmt.Println(color.Cyan(i18n.T().DeployStep, 5, i18n.T().DeployHealthCheck))
+	if err := d.performHealthCheck(d.config.Service.Port); err != nil {
+		return err
 	}
 
-	// 8. Run post-deploy hooks
-	if len(d.config.Hooks.PostDeploy) > 0 {
-		fmt.Println(color.Cyan(i18n.T().DeployPostHooks))
-		for _, hook := range d.config.Hooks.PostDeploy {
-			if _, err := d.runLocalCommand("sh", "-c", hook); err != nil {
-				return err
+	// Step 6: Prune old releases
+	fmt.Println(color.Cyan(i18n.T().DeployStep, 6, i18n.T().DeployPruning))
+	return d.Prune()
+}
+
+func (d *LocalDeployer) deployZeroDowntime(releaseName string, sourceDir string) error {
+	fmt.Println(color.Cyan(i18n.T().DeployExecZeroDowntime))
+
+	// Step 1: Setup
+	fmt.Println(color.Cyan(i18n.T().DeployStep, 1, i18n.T().DeploySetupDirs))
+	if err := d.setupDirectoriesAndRelease(releaseName, sourceDir); err != nil {
+		return err
+	}
+	if err := d.linkSharedPaths(releaseName); err != nil {
+		return err
+	}
+
+	// Step 2: Determine ports
+	fmt.Println(color.Cyan(i18n.T().DeployStep, 2, i18n.T().DeployDeterminePorts))
+	oldPort, err := d.getCurrentPortFromState()
+	if err != nil {
+		log.Print(color.Yellow(fmt.Sprintf("Warning: could not determine current port: %v. Defaulting to main port.", err)))
+		oldPort = d.config.Service.Port
+	}
+	newPort := d.config.Service.AltPort
+	if oldPort == d.config.Service.AltPort {
+		newPort = d.config.Service.Port
+	}
+	fmt.Printf(i18n.T().DeployCurrentPortInfo+"\n", oldPort)
+	fmt.Printf(i18n.T().DeployNewPortInfo+"\n", newPort)
+
+	// Step 3: Start the new version
+	fmt.Println(color.Cyan(i18n.T().DeployStep, 3, fmt.Sprintf(i18n.T().DeployStartNewRelease, newPort)))
+	var newReleaseCmd *exec.Cmd
+	var processDone <-chan error
+	if d.config.Service.StartCommand != "" {
+		env := map[string]string{"PORT": fmt.Sprintf("%d", newPort)}
+		var err error
+		newReleaseCmd, processDone, err = d.runCommandAttachedAsyncWithStreaming(releaseName, d.config.Service.StartCommand, env)
+		if err != nil {
+			return fmt.Errorf("failed to run start command for new release: %w", err)
+		}
+	}
+
+	// Step 4: Perform health check while monitoring the process
+	fmt.Println(color.Cyan(i18n.T().DeployStep, 4, fmt.Sprintf(i18n.T().DeployHealthCheckOnPort, newPort)))
+
+	healthCheckDone := make(chan error, 1)
+	go func() {
+		healthCheckDone <- d.performHealthCheck(newPort)
+	}()
+
+	select {
+	case err := <-processDone:
+		// Process exited before health check could complete. This is a failure.
+		if err == nil {
+			return fmt.Errorf(i18n.T().DeployErrProcExitedEarly)
+		}
+		return fmt.Errorf(i18n.T().DeployErrProcExitedEarlyWithError, err)
+	case err := <-healthCheckDone:
+		if err != nil {
+			// Health check failed. The process might still be running.
+			// The original logic to kill the process is implicitly handled now,
+			// as the `processDone` channel will receive an error when we kill it.
+			// But it's better to be explicit.
+			if newReleaseCmd != nil && newReleaseCmd.Process != nil {
+				log.Printf("Health check failed. Killing new process (PID: %d)...", newReleaseCmd.Process.Pid)
+				if errKill := newReleaseCmd.Process.Kill(); errKill != nil {
+					log.Print(color.Yellow(fmt.Sprintf("Warning: failed to kill process %d: %v", newReleaseCmd.Process.Pid, errKill)))
+				}
+			}
+			return fmt.Errorf("health check failed for new release on port %d: %w", newPort, err)
+		}
+		// Health check passed, deployment can continue.
+		fmt.Println(color.Green("  -> " + i18n.T().DeployHealthPassed))
+	}
+
+	// Step 5: Switch proxy traffic
+	fmt.Println(color.Green(i18n.T().DeployStep, 5, fmt.Sprintf(i18n.T().DeploySwitchProxy, newPort)))
+	if err := d.writeStateFile(newPort); err != nil {
+		if newReleaseCmd != nil && newReleaseCmd.Process != nil {
+			log.Printf("Failed to write active port to state file. Killing new process (PID: %d)...", newReleaseCmd.Process.Pid)
+			if errKill := newReleaseCmd.Process.Kill(); errKill != nil {
+				log.Print(color.Yellow(fmt.Sprintf("Warning: failed to kill process %d: %v", newReleaseCmd.Process.Pid, errKill)))
 			}
 		}
+		return fmt.Errorf("failed to write active port to state file: %w", err)
 	}
 
-	// 9. Prune old releases
-	fmt.Println(color.Cyan(i18n.T().DeployPruning))
+	// Step 6: Activate new release symlink
+	fmt.Println(color.Cyan(i18n.T().DeployStep, 6, i18n.T().DeployActivateSymlink))
+	if err := d.switchSymlink(releaseName); err != nil {
+		return err
+	}
+
+	// Step 7: Stop old service
+	gracePeriod := time.Duration(d.config.Service.GracefulTimeout) * time.Second
+	fmt.Println(color.Cyan(i18n.T().DeployStep, 7, fmt.Sprintf(i18n.T().DeployStopOldService, oldPort, gracePeriod)))
+	if gracePeriod > 0 {
+		time.Sleep(gracePeriod)
+	}
+	d.stopService(releaseName, oldPort)
+
+	// Step 8: Prune old releases
+	fmt.Println(color.Cyan(i18n.T().DeployStep, 8, i18n.T().DeployPruning))
 	return d.Prune()
 }
 
@@ -253,31 +334,28 @@ func (d *LocalDeployer) GetCurrentRelease() (string, error) {
 }
 
 func (d *LocalDeployer) waitForService(port int) error {
-	maxRetries := 30
-	if d.config.Service.RestartDelay > 0 {
-		maxRetries = d.config.Service.RestartDelay
-	}
+	maxRetries := 15 // Default retries
 	client := http.Client{
 		Timeout: 5 * time.Second,
 	}
 	healthCheckURL := fmt.Sprintf("http://localhost:%d%s", port, d.config.Service.HealthCheck)
 
 	for i := 0; i < maxRetries; i++ {
-		fmt.Printf(color.Yellow(i18n.T().DeployHealthAttempt), i+1, healthCheckURL)
+		fmt.Print(color.Yellow(fmt.Sprintf(i18n.T().DeployHealthAttempt, i+1, healthCheckURL)))
 		resp, err := client.Get(healthCheckURL)
 		if err == nil && resp.StatusCode >= 200 && resp.StatusCode < 400 {
 			resp.Body.Close()
-			fmt.Println(color.Green(i18n.T().DeployHealthPassed))
+			fmt.Println(color.Green(" ✓"))
 			return nil // Service is healthy
 		}
 		if resp != nil {
 			resp.Body.Close()
 		}
-		fmt.Println(color.Red(i18n.T().DeployHealthFailed))
+		fmt.Println(color.Red(" ✗"))
 		time.Sleep(2 * time.Second) // wait before next retry
 	}
 
-	return fmt.Errorf("service not responding after %d attempts, please check the service is running and the health check is working, or check config.yml for the health check url", maxRetries)
+	return fmt.Errorf("service not responding at %s after %d attempts", healthCheckURL, maxRetries)
 }
 
 func (d *LocalDeployer) setupDirectories() error {
@@ -291,6 +369,34 @@ func (d *LocalDeployer) setupDirectories() error {
 			return err
 		}
 	}
+	return nil
+}
+
+func (d *LocalDeployer) setupDirectoriesAndRelease(releaseName string, sourceDir string) error {
+	fmt.Println(color.Cyan(i18n.T().DeploySetupDirs))
+	if err := d.setupDirectories(); err != nil {
+		return err
+	}
+
+	fmt.Println(color.Cyan(i18n.T().DeployPopulatingDir))
+	releasePath := d.config.GetReleasePathByName(releaseName)
+	if sourceDir != "" {
+		fmt.Printf(i18n.T().DeployMovingContent+"\n", sourceDir)
+		if err := os.Rename(sourceDir, releasePath); err != nil {
+			fmt.Println(color.Yellow(i18n.T().DeployRenameFailed))
+			if _, err := d.runLocalCommand("cp", "-r", sourceDir, releasePath); err != nil {
+				return fmt.Errorf("failed to copy from source directory %s: %w", sourceDir, err)
+			}
+		}
+
+	} else {
+		if err := os.MkdirAll(releasePath, 0755); err != nil {
+			return fmt.Errorf("failed to create release directory %s: %w", releasePath, err)
+		}
+		fmt.Printf(i18n.T().DeployCreatedEmpty+"\n", releasePath)
+		fmt.Println(color.Yellow(i18n.T().DeployEmptyNote))
+	}
+
 	return nil
 }
 
@@ -339,4 +445,171 @@ func (d *LocalDeployer) switchSymlink(releaseName string) error {
 // GenerateReleaseTimestamp creates a timestamp string for a release.
 func GenerateReleaseTimestamp() string {
 	return time.Now().Format("20060102-150405")
+}
+
+func (d *LocalDeployer) runHooks(hooks []string, hookType string) error {
+	if len(hooks) > 0 {
+		// No need to print this sub-step, the main steps are enough
+		// fmt.Print(color.Cyan(fmt.Sprintf("Running %s hooks...\n", hookType)))
+		for _, hook := range hooks {
+			if _, err := d.runLocalCommand("sh", "-c", hook); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (d *LocalDeployer) performHealthCheck(port int) error {
+	if d.config.Service.HealthCheck != "" {
+		if err := d.waitForService(port); err != nil {
+			return fmt.Errorf("health check failed: %w", err)
+		}
+		fmt.Println(color.Green("  - " + i18n.T().DeployHealthPassed))
+	}
+	return nil
+}
+
+func (d *LocalDeployer) runCommandSync(releaseName, command string, env map[string]string) (string, error) {
+	finalCommand := command
+	if port, ok := env["PORT"]; ok {
+		finalCommand = strings.ReplaceAll(command, "${PORT}", port)
+	}
+
+	fullCommand := "sh"
+	args := []string{"-c", finalCommand}
+
+	fmt.Println(color.Cyan("  -> Executing: %s %s", fullCommand, strings.Join(args, " ")))
+	cmd := exec.Command(fullCommand, args...)
+	cmd.Dir = d.config.GetReleasePathByName(releaseName)
+
+	cmd.Env = os.Environ()
+	for k, v := range d.config.Deploy.Environment {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+	}
+	for k, v := range env {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf(i18n.T().DeployCmdExecFailed, err, output)
+	}
+	return string(output), nil
+}
+
+func (d *LocalDeployer) runCommandAsync(releaseName, command string, env map[string]string) (*exec.Cmd, error) {
+	finalCommand := command
+	if port, ok := env["PORT"]; ok {
+		finalCommand = strings.ReplaceAll(command, "${PORT}", port)
+	}
+	fullCommand := "sh"
+	args := []string{"-c", finalCommand}
+	fmt.Println(color.Cyan("  -> Executing: %s %s", fullCommand, strings.Join(args, " ")))
+	cmd := exec.Command(fullCommand, args...)
+	cmd.Dir = d.config.GetReleasePathByName(releaseName)
+	cmd.Env = os.Environ()
+	for k, v := range d.config.Deploy.Environment {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+	}
+	for k, v := range env {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start command: %w", err)
+	}
+	// Detach the process from the deployer
+	if err := cmd.Process.Release(); err != nil {
+		log.Printf("Warning: failed to release process: %v", err)
+	}
+	return cmd, nil
+}
+
+func (d *LocalDeployer) runCommandAttachedAsyncWithStreaming(releaseName, command string, env map[string]string) (*exec.Cmd, <-chan error, error) {
+	finalCommand := command
+	if port, ok := env["PORT"]; ok {
+		finalCommand = strings.ReplaceAll(command, "${PORT}", port)
+	}
+
+	fullCommand := "sh"
+	args := []string{"-c", finalCommand}
+	fmt.Println(color.Cyan("  -> Executing: %s %s", fullCommand, strings.Join(args, " ")))
+	cmd := exec.Command(fullCommand, args...)
+	cmd.Dir = d.config.GetReleasePathByName(releaseName)
+
+	cmd.Env = os.Environ()
+	for k, v := range d.config.Deploy.Environment {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+	}
+	for k, v := range env {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+	}
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, nil, fmt.Errorf("could not get stdout pipe: %w", err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, nil, fmt.Errorf("could not get stderr pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return nil, nil, fmt.Errorf("could not start command: %w", err)
+	}
+
+	go func() {
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			fmt.Printf("[%s] %s\n", color.Yellow("new-release"), scanner.Text())
+		}
+	}()
+
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			fmt.Printf("[%s] %s\n", color.Red("new-release-err"), scanner.Text())
+		}
+	}()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+		close(done)
+	}()
+
+	return cmd, done, nil
+}
+
+func (d *LocalDeployer) stopService(releaseName string, port int) {
+	if d.config.Service.StopCommand != "" {
+		// No need to print this sub-step, the main steps are enough
+		// fmt.Print(color.Cyan(fmt.Sprintf("Stopping service on port %d...\n", port)))
+		env := map[string]string{"PORT": fmt.Sprintf("%d", port)}
+		if _, err := d.runCommandSync(releaseName, d.config.Service.StopCommand, env); err != nil {
+			log.Print(color.Yellow(fmt.Sprintf("Warning: failed to stop service on port %d: %v", port, err)))
+		}
+	}
+}
+
+func (d *LocalDeployer) getCurrentPortFromState() (int, error) {
+	stateFile := d.config.GetActivePortPath()
+	content, err := os.ReadFile(stateFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return d.config.Service.Port, nil // Default to main port if state file doesn't exist
+		}
+		return 0, err
+	}
+	return strconv.Atoi(strings.TrimSpace(string(content)))
+}
+
+func (d *LocalDeployer) writeStateFile(port int) error {
+	stateFile := d.config.GetActivePortPath()
+	if err := os.MkdirAll(filepath.Dir(stateFile), 0755); err != nil {
+		return fmt.Errorf("could not create state directory: %w", err)
+	}
+	return os.WriteFile(stateFile, []byte(strconv.Itoa(port)), 0644)
 }

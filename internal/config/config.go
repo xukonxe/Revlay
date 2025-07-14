@@ -25,7 +25,7 @@ type Config struct {
 
 	// Application configuration
 	App struct {
-		Name        string `yaml:"name"`
+		Name         string `yaml:"name"`
 		KeepReleases int    `yaml:"keep_releases"`
 	} `yaml:"app"`
 
@@ -37,25 +37,27 @@ type Config struct {
 
 	// Service management configuration
 	Service struct {
-		// Service command to manage (e.g., "systemctl restart myapp")
-		RestartCommand string `yaml:"restart_command"`
+		// Service start command, ${PORT} will be substituted
+		StartCommand string `yaml:"start_command"`
+		// Service stop command
+		StopCommand string `yaml:"stop_command"`
 		// Port the service runs on
 		Port int `yaml:"port"`
 		// Alternative port for blue-green deployment
 		AltPort int `yaml:"alt_port"`
+		// Proxy port that listens to public traffic
+		ProxyPort int `yaml:"proxy_port"`
 		// Health check URL path
 		HealthCheck string `yaml:"health_check"`
-		// Restart delay in seconds
-		RestartDelay int `yaml:"restart_delay"`
 		// Graceful shutdown timeout in seconds
 		GracefulTimeout int `yaml:"graceful_timeout"`
 	} `yaml:"service"`
 
 	// Hooks configuration
 	Hooks struct {
-		PreDeploy   []string `yaml:"pre_deploy"`
-		PostDeploy  []string `yaml:"post_deploy"`
-		PreRollback []string `yaml:"pre_rollback"`
+		PreDeploy    []string `yaml:"pre_deploy"`
+		PostDeploy   []string `yaml:"post_deploy"`
+		PreRollback  []string `yaml:"pre_rollback"`
 		PostRollback []string `yaml:"post_rollback"`
 	} `yaml:"hooks"`
 }
@@ -64,10 +66,10 @@ type Config struct {
 func DefaultConfig() *Config {
 	return &Config{
 		App: struct {
-			Name        string `yaml:"name"`
+			Name         string `yaml:"name"`
 			KeepReleases int    `yaml:"keep_releases"`
 		}{
-			Name:        "myapp",
+			Name:         "myapp",
 			KeepReleases: 5,
 		},
 		Deploy: struct {
@@ -80,29 +82,31 @@ func DefaultConfig() *Config {
 			Mode: ZeroDowntimeMode,
 		},
 		Service: struct {
-			RestartCommand string `yaml:"restart_command"`
-			Port int `yaml:"port"`
-			AltPort int `yaml:"alt_port"`
-			HealthCheck string `yaml:"health_check"`
-			RestartDelay int `yaml:"restart_delay"`
-			GracefulTimeout int `yaml:"graceful_timeout"`
+			StartCommand    string `yaml:"start_command"`
+			StopCommand     string `yaml:"stop_command"`
+			Port            int    `yaml:"port"`
+			AltPort         int    `yaml:"alt_port"`
+			ProxyPort       int    `yaml:"proxy_port"`
+			HealthCheck     string `yaml:"health_check"`
+			GracefulTimeout int    `yaml:"graceful_timeout"`
 		}{
-			RestartCommand: "systemctl restart myapp",
-			Port: 8080,
-			AltPort: 8081,
-			HealthCheck: "/health",
-			RestartDelay: 5,
+			StartCommand:    "systemctl start myapp",
+			StopCommand:     "systemctl stop myapp",
+			Port:            8080,
+			AltPort:         8081,
+			ProxyPort:       80,
+			HealthCheck:     "/health",
 			GracefulTimeout: 30,
 		},
 		Hooks: struct {
-			PreDeploy   []string `yaml:"pre_deploy"`
-			PostDeploy  []string `yaml:"post_deploy"`
-			PreRollback []string `yaml:"pre_rollback"`
+			PreDeploy    []string `yaml:"pre_deploy"`
+			PostDeploy   []string `yaml:"post_deploy"`
+			PreRollback  []string `yaml:"pre_rollback"`
 			PostRollback []string `yaml:"post_rollback"`
 		}{
-			PreDeploy:   []string{},
-			PostDeploy:  []string{"systemctl reload nginx"},
-			PreRollback: []string{},
+			PreDeploy:    []string{},
+			PostDeploy:   []string{"systemctl reload nginx"},
+			PreRollback:  []string{},
 			PostRollback: []string{"systemctl reload nginx"},
 		},
 	}
@@ -172,12 +176,28 @@ func (c *Config) Validate() error {
 		if c.Service.AltPort <= 0 || c.Service.AltPort > 65535 {
 			return fmt.Errorf("service.alt_port must be between 1 and 65535 for zero downtime deployment")
 		}
+		if c.Service.ProxyPort > 0 && (c.Service.ProxyPort == c.Service.Port || c.Service.ProxyPort == c.Service.AltPort) {
+			return fmt.Errorf("service.proxy_port must not be the same as port or alt_port")
+		}
 		if c.Service.Port == c.Service.AltPort {
 			return fmt.Errorf("service.port and service.alt_port must be different")
+		}
+		if c.Service.StartCommand == "" {
+			return fmt.Errorf("service.start_command is required for zero_downtime mode")
 		}
 	}
 
 	return nil
+}
+
+// GetStatePath returns the path to the state directory
+func (c *Config) GetStatePath() string {
+	return filepath.Join(c.RootPath, ".revlay")
+}
+
+// GetActivePortPath returns the path to the active port state file
+func (c *Config) GetActivePortPath() string {
+	return filepath.Join(c.GetStatePath(), "active_port")
 }
 
 // GetReleasesPath returns the path to the releases directory

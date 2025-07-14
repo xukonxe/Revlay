@@ -96,31 +96,44 @@ type Messages struct {
 	PushComplete         string
 
 	// Deployment Steps
-	DeploySetupDirs           string
-	DeployEnsuringDir         string
-	DeployPopulatingDir       string
-	DeployMovingContent       string
-	DeployRenameFailed        string
-	DeployCreatedEmpty        string
-	DeployEmptyNote           string
-	DeployLinkingShared       string
-	DeployLinking             string
-	DeployPreHooks            string
-	DeployActivating          string
-	DeployPointingSymlink     string
-	DeployRestartingService   string
-	DeployHealthCheck         string
-	DeployHealthAttempt       string
-	DeployHealthFailed        string
-	DeployHealthPassed        string
-	DeployPostHooks           string
-	DeployPruning             string
-	DeployPruningRelease      string
-	DeployCmdExecFailed       string
-	DeployZeroDowntimeWarning string
-	DeployRollbackStart       string
-	DeployRollbackSuccess     string
-	DeployNoReleasesFound     string
+	DeploySetupDirs                   string
+	DeployEnsuringDir                 string
+	DeployPopulatingDir               string
+	DeployMovingContent               string
+	DeployRenameFailed                string
+	DeployCreatedEmpty                string
+	DeployEmptyNote                   string
+	DeployLinkingShared               string
+	DeployLinking                     string
+	DeployPreHooks                    string
+	DeployActivating                  string
+	DeployPointingSymlink             string
+	DeployRestartingService           string
+	DeployHealthCheck                 string
+	DeployHealthAttempt               string
+	DeployHealthFailed                string
+	DeployHealthPassed                string
+	DeployPostHooks                   string
+	DeployPruning                     string
+	DeployPruningRelease              string
+	DeployCmdExecFailed               string
+	DeployZeroDowntimeWarning         string
+	DeployRollbackStart               string
+	DeployRollbackSuccess             string
+	DeployNoReleasesFound             string
+	DeployExecZeroDowntime            string
+	DeployExecShortDowntime           string
+	DeployStep                        string
+	DeployDeterminePorts              string
+	DeployStartNewRelease             string
+	DeployHealthCheckOnPort           string
+	DeploySwitchProxy                 string
+	DeployActivateSymlink             string
+	DeployStopOldService              string
+	DeployErrProcExitedEarly          string
+	DeployErrProcExitedEarlyWithError string
+	DeployCurrentPortInfo             string
+	DeployNewPortInfo                 string
 
 	// SSH Messages
 	SSHRunningRemote string
@@ -256,31 +269,44 @@ var chineseMessages = Messages{
 	PushComplete:         "\n🎉 推送和部署成功完成！",
 
 	// Deployment Steps
-	DeploySetupDirs:           "步骤 1: 设置目录...",
-	DeployEnsuringDir:         "  - 确保目录存在: %s",
-	DeployPopulatingDir:       "步骤 2: 填充版本目录...",
-	DeployMovingContent:       "  - 从 %s 移动内容",
-	DeployRenameFailed:        "  - 重命名失败，改为复制...",
-	DeployCreatedEmpty:        "  - 已创建空版本目录: %s",
-	DeployEmptyNote:           "  - 注意: 未指定源目录。使用部署前钩子来填充此目录。",
-	DeployLinkingShared:       "步骤 3: 链接共享路径...",
-	DeployLinking:             "  - 链接: %s -> %s",
-	DeployPreHooks:            "步骤 4: 运行部署前钩子...",
-	DeployActivating:          "步骤 5: 激活新版本...",
-	DeployPointingSymlink:     "  - 将'current'符号链接指向: %s",
-	DeployRestartingService:   "步骤 6: 重启服务...",
-	DeployHealthCheck:         "步骤 7: 执行健康检查...",
-	DeployHealthAttempt:       "  - 健康检查尝试 #%d 对 %s... ",
-	DeployHealthFailed:        "失败",
-	DeployHealthPassed:        "成功",
-	DeployPostHooks:           "步骤 8: 运行部署后钩子...",
-	DeployPruning:             "步骤 9: 清理旧版本...",
-	DeployPruningRelease:      "清理旧版本: %s",
-	DeployCmdExecFailed:       "命令执行失败: %s\n%s",
-	DeployZeroDowntimeWarning: "警告: 零停机部署目前是简化版，行为与标准部署相同。",
-	DeployRollbackStart:       "正在回滚到版本 %s...",
-	DeployRollbackSuccess:     "回滚成功。",
-	DeployNoReleasesFound:     "未找到任何版本。",
+	DeploySetupDirs:                   "步骤 1: 设置目录...",
+	DeployEnsuringDir:                 "  - 确保目录存在: %s",
+	DeployPopulatingDir:               "步骤 2: 填充版本目录...",
+	DeployMovingContent:               "  - 从 %s 移动内容",
+	DeployRenameFailed:                "  - 重命名失败，改为复制...",
+	DeployCreatedEmpty:                "  - 已创建空版本目录: %s",
+	DeployEmptyNote:                   "  - 注意: 未指定源目录。使用部署前钩子来填充此目录。",
+	DeployLinkingShared:               "步骤 3: 链接共享路径...",
+	DeployLinking:                     "  - 链接: %s -> %s",
+	DeployPreHooks:                    "步骤 4: 运行部署前钩子...",
+	DeployActivating:                  "⑤ 激活新版本...",
+	DeployPointingSymlink:             "  - 将'current'符号链接指向: %s",
+	DeployRestartingService:           "⑥ 重启服务...",
+	DeployHealthCheck:                 "⑦ 执行健康检查...",
+	DeployHealthAttempt:               "  - 健康检查尝试 #%d 对 %s...",
+	DeployHealthFailed:                " 失败",
+	DeployHealthPassed:                " 成功.",
+	DeployPostHooks:                   "⑧ 执行部署后钩子...",
+	DeployPruning:                     "⑨ 清理旧版本...",
+	DeployPruningRelease:              "清理旧版本: %s",
+	DeployCmdExecFailed:               "命令执行失败: %s\n%s",
+	DeployZeroDowntimeWarning:         "警告: 零停机部署目前是简化版，行为与标准部署相同。",
+	DeployRollbackStart:               "正在回滚到版本 %s...",
+	DeployRollbackSuccess:             "回滚成功。",
+	DeployNoReleasesFound:             "未找到任何版本。",
+	DeployExecZeroDowntime:            "零停机部署模式",
+	DeployExecShortDowntime:           "短停机部署模式",
+	DeployStep:                        "步骤 %d: %s",
+	DeployDeterminePorts:              "确定端口...",
+	DeployStartNewRelease:             "在端口 %d 上启动新版本...",
+	DeployHealthCheckOnPort:           "在端口 %d 上执行健康检查...",
+	DeploySwitchProxy:                 "健康检查通过。切换代理流量到端口 %d...",
+	DeployActivateSymlink:             "激活新版本符号链接...",
+	DeployStopOldService:              "在端口 %d 上停止旧服务 (等待 %s)...",
+	DeployErrProcExitedEarly:          "新版本进程在健康检查完成前已正常退出（状态码0），服务应保持在线状态",
+	DeployErrProcExitedEarlyWithError: "新版本进程在启动期间意外退出：%v",
+	DeployCurrentPortInfo:             "  - 当前服务运行于端口: %d",
+	DeployNewPortInfo:                 "  - 新服务将启动于端口: %d",
 
 	// SSH Messages
 	SSHRunningRemote: "  -> 在远程运行: ssh %s",
@@ -409,31 +435,44 @@ var englishMessages = Messages{
 	PushComplete:         "\n🎉 Push and deploy completed successfully!",
 
 	// Deployment Steps
-	DeploySetupDirs:           "Step 1: Setting up directories...",
-	DeployEnsuringDir:         "  - Ensuring directory exists: %s",
-	DeployPopulatingDir:       "Step 2: Populating release directory...",
-	DeployMovingContent:       "  - Moving content from %s",
-	DeployRenameFailed:        "  - Rename failed, falling back to copy...",
-	DeployCreatedEmpty:        "  - Created empty release directory: %s",
-	DeployEmptyNote:           "  - Note: No source specified. Use pre_deploy hooks to populate this directory.",
-	DeployLinkingShared:       "Step 3: Linking shared paths...",
-	DeployLinking:             "  - Linking: %s -> %s",
-	DeployPreHooks:            "Step 4: Running pre-deploy hooks...",
-	DeployActivating:          "Step 5: Activating new release...",
-	DeployPointingSymlink:     "  - Pointing 'current' symlink to: %s",
-	DeployRestartingService:   "Step 6: Restarting service...",
-	DeployHealthCheck:         "Step 7: Performing health check...",
-	DeployHealthAttempt:       "  - Health check attempt #%d for %s... ",
-	DeployHealthFailed:        "Failed",
-	DeployHealthPassed:        "OK",
-	DeployPostHooks:           "Step 8: Running post-deploy hooks...",
-	DeployPruning:             "Step 9: Pruning old releases...",
-	DeployPruningRelease:      "Pruning old release: %s",
-	DeployCmdExecFailed:       "command execution failed: %s\n%s",
-	DeployZeroDowntimeWarning: "Warning: Zero-downtime deployment is currently simplified and acts like a standard deploy.",
-	DeployRollbackStart:       "Rolling back to release %s...",
-	DeployRollbackSuccess:     "Rollback successful.",
-	DeployNoReleasesFound:     "No releases found.",
+	DeploySetupDirs:                   "Step 1: Setting up directories...",
+	DeployEnsuringDir:                 "  - Ensuring directory exists: %s",
+	DeployPopulatingDir:               "Step 2: Populating release directory...",
+	DeployMovingContent:               "  - Moving content from %s",
+	DeployRenameFailed:                "  - Rename failed, falling back to copy...",
+	DeployCreatedEmpty:                "  - Created empty release directory: %s",
+	DeployEmptyNote:                   "  - Note: No source specified. Use pre_deploy hooks to populate this directory.",
+	DeployLinkingShared:               "Step 3: Linking shared paths...",
+	DeployLinking:                     "  - Linking: %s -> %s",
+	DeployPreHooks:                    "Step 4: Running pre-deploy hooks...",
+	DeployActivating:                  "Step 5: Activating new release...",
+	DeployPointingSymlink:             "  - Pointing 'current' symlink to: %s",
+	DeployRestartingService:           "Step 6: Restarting service...",
+	DeployHealthCheck:                 "Step 7: Performing health check...",
+	DeployHealthAttempt:               "  - Health check attempt #%d to %s...",
+	DeployHealthFailed:                " Failed",
+	DeployHealthPassed:                " Passed.",
+	DeployPostHooks:                   "Step 8: Running post-deploy hooks...",
+	DeployPruning:                     "Step 9: Pruning old releases...",
+	DeployPruningRelease:              "Pruning old release: %s",
+	DeployCmdExecFailed:               "Command failed: %s\n%s",
+	DeployZeroDowntimeWarning:         "Warning: Zero-downtime deployment is currently simplified and acts like a standard deploy.",
+	DeployRollbackStart:               "Rolling back to release %s...",
+	DeployRollbackSuccess:             "Rollback successful.",
+	DeployNoReleasesFound:             "No releases found.",
+	DeployExecZeroDowntime:            "Zero-Downtime Deployment",
+	DeployExecShortDowntime:           "Short-Downtime Deployment",
+	DeployStep:                        "Step %d: %s",
+	DeployDeterminePorts:              "Determining ports...",
+	DeployStartNewRelease:             "Starting new release on port %d...",
+	DeployHealthCheckOnPort:           "Performing health check on port %d...",
+	DeploySwitchProxy:                 "Health check passed. Switching proxy traffic to port %d...",
+	DeployActivateSymlink:             "Activating new release symlink...",
+	DeployStopOldService:              "Stopping old service on port %d (after %s grace period)...",
+	DeployErrProcExitedEarly:          "new release process exited cleanly (status 0) before health check passed; a service is expected to stay online",
+	DeployErrProcExitedEarlyWithError: "new release process exited unexpectedly during startup: %v",
+	DeployCurrentPortInfo:             "  - Current service detected on port: %d",
+	DeployNewPortInfo:                 "  - New service will start on port: %d",
 
 	// SSH Messages
 	SSHRunningRemote: "  -> Running on remote: ssh %s",

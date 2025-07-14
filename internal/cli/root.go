@@ -57,6 +57,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(NewReleasesCommand())
 	cmd.AddCommand(NewStatusCommand())
 	cmd.AddCommand(NewPushCommand())
+	cmd.AddCommand(NewProxyCommand()) // Add the new proxy command
 
 	// Add persistent flags to the root command.
 	cmd.PersistentFlags().StringP("config", "c", "", i18n.T().ConfigFileFlag)

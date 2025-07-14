@@ -4,18 +4,21 @@ app:
 deploy:
     environment:
         NODE_ENV: production
-    mode: zero_downtime
+    mode: short_downtime
 service:
-    restart_command: systemctl restart myapp
+    start_command: |
+        echo "test1"
+    stop_command: |
+        echo "test2"
     port: 8080
     alt_port: 8081
+    proxy_port: 80
     health_check: /health
-    restart_delay: 5
     graceful_timeout: 30
 hooks:
     pre_deploy: []
     post_deploy:
-        - systemctl reload nginx
+        - echo "test3"
     pre_rollback: []
     post_rollback:
-        - systemctl reload nginx
+        - echo "test4"

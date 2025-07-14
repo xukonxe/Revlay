@@ -2,7 +2,6 @@ package config
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,6 +15,8 @@ func TestDefaultConfig(t *testing.T) {
 	assert.Equal(t, ZeroDowntimeMode, cfg.Deploy.Mode)
 	assert.Equal(t, 8080, cfg.Service.Port)
 	assert.Equal(t, 8081, cfg.Service.AltPort)
+	assert.Equal(t, 80, cfg.Service.ProxyPort)
+	assert.Equal(t, "systemctl start myapp", cfg.Service.StartCommand)
 }
 
 func TestConfigSaveAndLoad(t *testing.T) {
@@ -27,6 +28,7 @@ func TestConfigSaveAndLoad(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.App.Name = "testapp"
 	cfg.Service.Port = 9000
+	cfg.Service.ProxyPort = 88
 
 	err = SaveConfig(cfg, tmpFile.Name())
 	assert.NoError(t, err)
@@ -36,6 +38,7 @@ func TestConfigSaveAndLoad(t *testing.T) {
 
 	assert.Equal(t, "testapp", loadedCfg.App.Name)
 	assert.Equal(t, 9000, loadedCfg.Service.Port)
+	assert.Equal(t, 88, loadedCfg.Service.ProxyPort)
 }
 
 func TestConfigValidation(t *testing.T) {
@@ -63,24 +66,35 @@ func TestConfigValidation(t *testing.T) {
 		// Invalid port
 		cfg.Service.Port = -1
 		assert.Error(t, cfg.Validate())
+		cfg.Service.Port = 8080
 
 		// Invalid alt_port
-		cfg.Service.Port = 8080
 		cfg.Service.AltPort = 0
 		assert.Error(t, cfg.Validate())
+		cfg.Service.AltPort = 8081
 
 		// Same port and alt_port
 		cfg.Service.AltPort = 8080
 		assert.Error(t, cfg.Validate())
+		cfg.Service.AltPort = 8081
+
+		// Proxy port same as service port
+		cfg.Service.ProxyPort = 8080
+		assert.Error(t, cfg.Validate())
+		cfg.Service.ProxyPort = 80
+
+		// Missing start command
+		cfg.Service.StartCommand = ""
+		assert.Error(t, cfg.Validate())
 	})
 }
 
-func TestConfigPaths(t *testing.T) {
-	cfg := DefaultConfig()
-	cfg.RootPath = "/opt/myapp"
-
-	assert.Equal(t, filepath.Join("/opt/myapp", "releases"), cfg.GetReleasesPath())
-	assert.Equal(t, filepath.Join("/opt/myapp", "shared"), cfg.GetSharedPath())
-	assert.Equal(t, filepath.Join("/opt/myapp", "current"), cfg.GetCurrentPath())
-	assert.Equal(t, filepath.Join("/opt/myapp", "releases", "test"), cfg.GetReleasePathByName("test"))
+func TestPathGetters(t *testing.T) {
+	cfg := &Config{RootPath: "/tmp/my-app"}
+	assert.Equal(t, "/tmp/my-app/releases", cfg.GetReleasesPath())
+	assert.Equal(t, "/tmp/my-app/shared", cfg.GetSharedPath())
+	assert.Equal(t, "/tmp/my-app/current", cfg.GetCurrentPath())
+	assert.Equal(t, "/tmp/my-app/.revlay", cfg.GetStatePath())
+	assert.Equal(t, "/tmp/my-app/.revlay/active_port", cfg.GetActivePortPath())
+	assert.Equal(t, "/tmp/my-app/releases/v1", cfg.GetReleasePathByName("v1"))
 }
