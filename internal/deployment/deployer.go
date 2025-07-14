@@ -21,6 +21,15 @@ import (
 	"github.com/xukonxe/revlay/internal/i18n"
 )
 
+// ServiceAlreadyRunningError is returned when a service is already running.
+type ServiceAlreadyRunningError struct {
+	PID int
+}
+
+func (e *ServiceAlreadyRunningError) Error() string {
+	return fmt.Sprintf("service already running with PID %d", e.PID)
+}
+
 // Deployer defines the interface for deployment operations.
 type Deployer interface {
 	Deploy(releaseName string, sourceDir string) error
@@ -28,6 +37,8 @@ type Deployer interface {
 	ListReleases() ([]string, error)
 	GetCurrentRelease() (string, error)
 	Prune() error
+	StartService(releaseName string) error
+	StopService() error
 }
 
 // Release represents a deployment release.
@@ -102,13 +113,13 @@ func (d *LocalDeployer) deployShortDowntime(releaseName string, sourceDir string
 		previousReleaseName = ""
 	}
 
-	// Step 1: Pre-flight checks
+	// 步骤 1: 预检
 	log.Print(i18n.T().DeployPreflightChecks)
 	if err := d.preflightChecks(releaseName); err != nil {
 		return err
 	}
 
-	// Step 2: Setup directories
+	// 步骤 2: 设置目录
 	log.Print(i18n.T().DeploySetupDirs)
 	if err := d.setupDirectoriesAndRelease(releaseName, sourceDir); err != nil {
 		return err
@@ -117,13 +128,13 @@ func (d *LocalDeployer) deployShortDowntime(releaseName string, sourceDir string
 		return err
 	}
 
-	// Step 3: Stop the current service
+	// 步骤 3: 停止当前服务
 	log.Print(i18n.T().DeployStoppingService)
 	if err := d.stopService(); err != nil {
 		log.Warn(fmt.Sprintf(i18n.T().DeployStopServiceFailed, err))
 	}
 
-	// Step 4: Activate new release
+	// 步骤 4: 激活新版本
 	log.Print(i18n.T().DeployActivating)
 	if err := d.switchSymlink(releaseName); err != nil {
 		// 如果切换符号链接失败，旧服务已经停止。
@@ -173,7 +184,7 @@ func (d *LocalDeployer) deployShortDowntime(releaseName string, sourceDir string
 		return fmt.Errorf("'%s' 的部署失败，但成功回滚到 '%s'", releaseName, previousReleaseName)
 	}
 
-	// Step 7: Prune old releases
+	// 步骤 7: 清理旧版本
 	log.Print(i18n.T().DeployPruning)
 	return d.Prune()
 }
@@ -181,8 +192,12 @@ func (d *LocalDeployer) deployShortDowntime(releaseName string, sourceDir string
 func (d *LocalDeployer) deployZeroDowntime(releaseName string, sourceDir string) error {
 	fmt.Println(color.Cyan(i18n.T().DeployExecZeroDowntime))
 
-	// Step 1: Setup
-	fmt.Println(color.Cyan(i18n.T().DeployStep, 1, i18n.T().DeploySetupDirs))
+	// 定义一个变量来存储步骤文本
+	var stepText string
+
+	// 步骤 1: 设置
+	stepText = fmt.Sprintf("第%s步", convertToChineseNumber(1))
+	fmt.Println(color.Cyan("%s: %s", stepText, i18n.T().DeploySetupDirs))
 	if err := d.setupDirectoriesAndRelease(releaseName, sourceDir); err != nil {
 		return err
 	}
@@ -190,11 +205,12 @@ func (d *LocalDeployer) deployZeroDowntime(releaseName string, sourceDir string)
 		return err
 	}
 
-	// Step 2: Determine ports
-	fmt.Println(color.Cyan(i18n.T().DeployStep, 2, i18n.T().DeployDeterminePorts))
+	// 步骤 2: 确定端口
+	stepText = fmt.Sprintf("第%s步", convertToChineseNumber(2))
+	fmt.Println(color.Cyan("%s: %s", stepText, i18n.T().DeployDeterminePorts))
 	oldPort, err := d.getCurrentPortFromState()
 	if err != nil {
-		log.Print(color.Yellow(fmt.Sprintf("Warning: could not determine current port: %v. Defaulting to main port.", err)))
+		log.Print(color.Yellow(fmt.Sprintf("警告: 无法确定当前端口: %v。默认使用主端口。", err)))
 		oldPort = d.config.Service.Port
 	}
 	newPort := d.config.Service.AltPort
@@ -205,7 +221,8 @@ func (d *LocalDeployer) deployZeroDowntime(releaseName string, sourceDir string)
 	fmt.Printf(i18n.T().DeployNewPortInfo+"\n", newPort)
 
 	// Step 3: Start the new version
-	fmt.Println(color.Cyan(i18n.T().DeployStep, 3, fmt.Sprintf(i18n.T().DeployStartNewRelease, newPort)))
+	stepText = fmt.Sprintf("第%s步", convertToChineseNumber(3))
+	fmt.Println(color.Cyan("%s: %s", stepText, fmt.Sprintf(i18n.T().DeployStartNewRelease, newPort)))
 	var newReleaseCmd *exec.Cmd
 	var processDone <-chan error
 	if d.config.Service.StartCommand != "" {
@@ -218,7 +235,8 @@ func (d *LocalDeployer) deployZeroDowntime(releaseName string, sourceDir string)
 	}
 
 	// Step 4: Perform health check while monitoring the process
-	fmt.Println(color.Cyan(i18n.T().DeployStep, 4, fmt.Sprintf(i18n.T().DeployHealthCheckOnPort, newPort)))
+	stepText = fmt.Sprintf("第%s步", convertToChineseNumber(4))
+	fmt.Println(color.Cyan("%s: %s", stepText, fmt.Sprintf(i18n.T().DeployHealthCheckOnPort, newPort)))
 
 	healthCheckDone := make(chan error, 1)
 	go func() {
@@ -227,31 +245,28 @@ func (d *LocalDeployer) deployZeroDowntime(releaseName string, sourceDir string)
 
 	select {
 	case err := <-processDone:
-		// Process exited before health check could complete. This is a failure.
-		if err == nil {
+		// Process exited before health check completed
+		if err != nil {
+			return fmt.Errorf(i18n.Sprintf(i18n.T().DeployErrProcExitedEarlyWithError, err))
+		}
+		// If the process exits cleanly, it might be a short-lived task, not a long-running service.
+		// Or it could be a misconfiguration. We should check the health endpoint one last time.
+		if errHealth := d.performHealthCheck(newPort); errHealth != nil {
 			return fmt.Errorf(i18n.T().DeployErrProcExitedEarly)
 		}
-		return fmt.Errorf(i18n.T().DeployErrProcExitedEarlyWithError, err)
 	case err := <-healthCheckDone:
 		if err != nil {
-			// Health check failed. The process might still be running.
-			// The original logic to kill the process is implicitly handled now,
-			// as the `processDone` channel will receive an error when we kill it.
-			// But it's better to be explicit.
+			// Health check failed, kill the new process
 			if newReleaseCmd != nil && newReleaseCmd.Process != nil {
-				log.Printf("Health check failed. Killing new process (PID: %d)...", newReleaseCmd.Process.Pid)
-				if errKill := newReleaseCmd.Process.Kill(); errKill != nil {
-					log.Print(color.Yellow(fmt.Sprintf("Warning: failed to kill process %d: %v", newReleaseCmd.Process.Pid, errKill)))
-				}
+				newReleaseCmd.Process.Kill()
 			}
-			return fmt.Errorf("health check failed for new release on port %d: %w", newPort, err)
+			return fmt.Errorf("health check failed: %w", err)
 		}
-		// Health check passed, deployment can continue.
-		fmt.Println(color.Green("  -> " + i18n.T().DeployHealthPassed))
 	}
 
 	// Step 5: Switch proxy traffic
-	fmt.Println(color.Green(i18n.T().DeployStep, 5, fmt.Sprintf(i18n.T().DeploySwitchProxy, newPort)))
+	stepText = fmt.Sprintf("第%s步", convertToChineseNumber(5))
+	fmt.Println(color.Cyan("%s: %s", stepText, fmt.Sprintf(i18n.T().DeploySwitchProxy, newPort)))
 	if err := d.writeStateFile(newPort); err != nil {
 		if newReleaseCmd != nil && newReleaseCmd.Process != nil {
 			log.Printf("Failed to write active port to state file. Killing new process (PID: %d)...", newReleaseCmd.Process.Pid)
@@ -263,14 +278,16 @@ func (d *LocalDeployer) deployZeroDowntime(releaseName string, sourceDir string)
 	}
 
 	// Step 6: Activate new release symlink
-	fmt.Println(color.Cyan(i18n.T().DeployStep, 6, i18n.T().DeployActivateSymlink))
+	stepText = fmt.Sprintf("第%s步", convertToChineseNumber(6))
+	fmt.Println(color.Cyan("%s: %s", stepText, i18n.T().DeployActivateSymlink))
 	if err := d.switchSymlink(releaseName); err != nil {
 		return err
 	}
 
 	// Step 7: Stop old service
 	gracePeriod := time.Duration(d.config.Service.GracefulTimeout) * time.Second
-	fmt.Println(color.Cyan(i18n.T().DeployStep, 7, fmt.Sprintf(i18n.T().DeployStopOldService, oldPort, gracePeriod)))
+	stepText = fmt.Sprintf("第%s步", convertToChineseNumber(7))
+	fmt.Println(color.Cyan("%s: %s", stepText, fmt.Sprintf(i18n.T().DeployStopOldService, oldPort, gracePeriod)))
 	if gracePeriod > 0 {
 		time.Sleep(gracePeriod)
 	}
@@ -278,7 +295,8 @@ func (d *LocalDeployer) deployZeroDowntime(releaseName string, sourceDir string)
 	// if err := d.stopServiceByPort(oldPort); err != nil { ... }
 
 	// Step 8: Prune old releases
-	fmt.Println(color.Cyan(i18n.T().DeployStep, 8, i18n.T().DeployPruning))
+	stepText = fmt.Sprintf("第%s步", convertToChineseNumber(8))
+	fmt.Println(color.Cyan("%s: %s", stepText, i18n.T().DeployPruning))
 	return d.Prune()
 }
 
@@ -391,7 +409,7 @@ func (d *LocalDeployer) GetCurrentRelease() (string, error) {
 func (d *LocalDeployer) waitForService(port int) error {
 	maxRetries := d.config.Service.HealthCheckRetries
 	if maxRetries <= 0 {
-		maxRetries = 15 // 默认重试次数
+		maxRetries = 5 // 默认重试次数
 	}
 
 	timeout := d.config.Service.HealthCheckTimeout
@@ -410,7 +428,7 @@ func (d *LocalDeployer) waitForService(port int) error {
 	healthCheckURL := fmt.Sprintf("http://localhost:%d%s", port, d.config.Service.HealthCheck)
 
 	for i := 0; i < maxRetries; i++ {
-		fmt.Print(color.Yellow(fmt.Sprintf(i18n.T().DeployHealthAttempt, i+1, healthCheckURL)))
+		fmt.Printf(color.Yellow("  - 健康检查尝试 #%d 对 %s", i+1, healthCheckURL))
 		resp, err := client.Get(healthCheckURL)
 		if err == nil && resp.StatusCode >= 200 && resp.StatusCode < 400 {
 			resp.Body.Close()
@@ -424,7 +442,7 @@ func (d *LocalDeployer) waitForService(port int) error {
 		time.Sleep(time.Duration(interval) * time.Second) // 使用配置的间隔时间
 	}
 
-	return fmt.Errorf("service not responding at %s after %d attempts", healthCheckURL, maxRetries)
+	return fmt.Errorf("服务在 %d 次尝试后未响应: %s", maxRetries, healthCheckURL)
 }
 
 func (d *LocalDeployer) setupDirectories() error {
@@ -620,6 +638,7 @@ func (d *LocalDeployer) runCommandAttachedAsyncWithStreaming(releaseName, comman
 	return cmd, done, nil
 }
 
+// stopService stops the current running service.
 func (d *LocalDeployer) stopService() error {
 	pidPath := d.resolvePath(d.config.Service.PidFile, "")
 	if _, err := os.Stat(pidPath); os.IsNotExist(err) {
@@ -683,7 +702,33 @@ func (d *LocalDeployer) stopService() error {
 	return nil
 }
 
+// StopService stops the current running service (public wrapper).
+func (d *LocalDeployer) StopService() error {
+	return d.stopService()
+}
+
+// startService starts a service for a given release.
 func (d *LocalDeployer) startService(releaseName string) error {
+	// Check if the service is already running
+	pidPath := d.resolvePath(d.config.Service.PidFile, "")
+	if _, err := os.Stat(pidPath); err == nil {
+		content, err := os.ReadFile(pidPath)
+		if err == nil {
+			parts := strings.Split(strings.TrimSpace(string(content)), ":")
+			if len(parts) == 2 {
+				pid, err := strconv.Atoi(parts[0])
+				if err == nil {
+					process, err := os.FindProcess(pid)
+					if err == nil && process.Signal(syscall.Signal(0)) == nil {
+						return &ServiceAlreadyRunningError{PID: pid}
+					}
+				}
+			}
+		}
+		log.Println(color.Yellow(i18n.T().ServiceStalePidFile))
+		os.Remove(pidPath)
+	}
+
 	startCmd := d.config.Service.StartCommand
 	if startCmd == "" {
 		log.Println(color.Yellow("No start_command configured, skipping service start."))
@@ -691,7 +736,7 @@ func (d *LocalDeployer) startService(releaseName string) error {
 	}
 
 	// 1. Define paths
-	pidPath := d.resolvePath(d.config.Service.PidFile, releaseName)
+	pidPath = d.resolvePath(d.config.Service.PidFile, releaseName)
 	stdoutLogPath := d.resolvePath(d.config.Service.StdoutLog, releaseName)
 
 	var stderrLogPath string
@@ -819,6 +864,11 @@ echo "$PID:%d" > "$PID_FILE"
 	return nil
 }
 
+// StartService starts a service for a given release (public wrapper).
+func (d *LocalDeployer) StartService(releaseName string) error {
+	return d.startService(releaseName)
+}
+
 func (d *LocalDeployer) getCurrentPortFromState() (int, error) {
 	stateFile := d.config.GetActivePortPath()
 	content, err := os.ReadFile(stateFile)
@@ -850,7 +900,10 @@ func newStepLogger() *stepLogger {
 
 func (l *stepLogger) Print(message string) {
 	l.step++
-	fmt.Println(color.Cyan(i18n.Sprintf(i18n.T().DeployStep, l.step, message)))
+	// 将数字转换为中文步骤序号
+	var stepText string
+	stepText = fmt.Sprintf("第%s步", convertToChineseNumber(l.step))
+	fmt.Println(color.Cyan("%s: %s", stepText, message))
 }
 
 func (l *stepLogger) Warn(message string) {
@@ -962,4 +1015,18 @@ func copyRegularFile(src, dest string, mode os.FileMode) error {
 	}
 
 	return nil
+}
+
+// 将数字转换为中文数字
+func convertToChineseNumber(num int) string {
+	chineseNumbers := []string{"一", "二", "三", "四", "五", "六", "七", "八", "九", "十"}
+	if num <= 0 {
+		return ""
+	} else if num <= 10 {
+		return chineseNumbers[num-1]
+	} else if num < 20 {
+		return "十" + chineseNumbers[num-11]
+	} else {
+		return fmt.Sprintf("%d", num) // 超过20的数字返回阿拉伯数字
+	}
 }

@@ -12,6 +12,7 @@ service:
     alt_port: 8081
     proxy_port: 80
     health_check: /health
+    health_check_retries: 3
     graceful_timeout: 10
     startup_delay: 3
     pid_file: pids/{{.AppName}}.pid

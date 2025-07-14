@@ -111,8 +111,8 @@ func DefaultConfig() *Config {
 			StdoutLog           string `yaml:"stdout_log"`
 			StderrLog           string `yaml:"stderr_log"`
 		}{
-			StartCommand:        "systemctl start myapp",
-			StopCommand:         "systemctl stop myapp",
+			StartCommand:        "",
+			StopCommand:         "",
 			Port:                8080,
 			AltPort:             8081,
 			ProxyPort:           80,

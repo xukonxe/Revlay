@@ -79,6 +79,29 @@ type Messages struct {
 	StatusDirectoryDetails string
 	StatusDirFailed        string
 
+	// Service Command
+	ServiceShortDesc          string
+	ServiceLongDesc           string
+	ServiceStartShortDesc     string
+	ServiceStartLongDesc      string
+	ServiceStarting           string
+	ServiceStartSuccess       string
+	ServiceStartFailed        string
+	ServiceStartNotConfigured string
+	ServiceStopShortDesc      string
+	ServiceStopLongDesc       string
+	ServiceStopping           string
+	ServiceStopSuccess        string
+	ServiceStopFailed         string
+	ServiceStopNotConfigured  string
+	ServiceStopNotRunning     string
+	ServiceNotFound           string
+	ServiceIdRequired         string
+	ServiceNoReleaseFound     string
+	ServiceNotConfigured      string
+	ServiceAlreadyRunning     string
+	ServiceStalePidFile       string
+
 	// Push Command
 	PushShortDesc        string
 	PushLongDesc         string
@@ -200,74 +223,97 @@ var messages Messages
 
 // Chinese messages
 var chineseMessages = Messages{
-	AppShortDesc:   "现代化、快速、无依赖的部署工具",
-	AppLongDesc:    `Revlay是一个现代化的部署工具，提供原子部署、零停机部署和传统服务器部署的轻松回滚功能。\n\n它使用结构化的目录布局，包含releases、shared文件和原子符号链接切换，确保可靠的部署。`,
-	AppVersion:     "版本",
-	ConfigFileFlag: "配置文件 (默认为 revlay.yml)",
-	LanguageFlag:   "语言设置 (zh|en)",
+	AppShortDesc:   "一个现代、快速、零依赖的部署和服务器生命周期管理工具。",
+	AppLongDesc:    `Revlay是一个用于部署和管理Web应用程序的命令行工具。`,
+	ConfigFileFlag: "配置文件路径 (默认为revlay.yml)",
+	LanguageFlag:   "输出语言 (例如: 'en', 'zh')",
 
-	InitShortDesc:     "使用 revlay.yml 文件初始化一个新项目",
-	InitLongDesc:      `init 命令在当前或指定目录中创建一个新的 revlay.yml 配置文件。`,
+	// init command
+	InitShortDesc:     "用revlay.yml文件初始化新项目",
+	InitLongDesc:      `init命令在当前或指定目录中创建新的revlay.yml配置文件。`,
 	InitNameFlag:      "应用名称",
 	InitPathFlag:      "服务器上的部署路径",
-	InitDirectoryFlag: "用于初始化的目标目录",
+	InitDirectoryFlag: "初始化的目标目录",
 	InitPromptName:    "应用名称",
 	InitPromptPath:    "部署路径",
 	InitFailed:        "初始化失败: %v",
 	InitSuccess:       "配置文件已创建于 %s",
-	InitForceFlag:     "覆盖已存在的 revlay.yml 文件",
+	InitForceFlag:     "覆盖现有的revlay.yml文件（如果存在）",
 
 	// deploy command
-	DeployShortDesc:   "部署新版本",
-	DeployLongDesc:    "部署新版本到服务器。\n\n如果没有提供版本名称，将自动生成基于时间戳的名称。\n此命令将创建新的版本目录，链接共享路径，并切换current符号链接到新版本。",
+	DeployShortDesc:   "将应用程序部署到服务器",
+	DeployLongDesc:    "向服务器部署新的版本。\n\n如果未提供版本名称，将生成基于时间戳的名称。\n该命令将创建新的版本目录，链接共享路径，\n并将当前符号链接切换到新版本。",
 	DeployStarting:    "🚀 开始部署版本：%s",
-	DeployDryRunMode:  "🔍 预览模式 - 不会进行实际更改",
+	DeployDryRunMode:  "🔍 演示模式 - 不会进行实际更改",
 	DeploySSHTest:     "🔗 测试SSH连接...",
 	DeploySSHSuccess:  "✓ SSH连接成功",
 	DeployInProgress:  "📦 正在部署版本...",
 	DeploySuccess:     "✓ 部署成功完成",
-	DeployFailed:      "部署失败：%v",
-	DeployDryRunFlag:  "显示将要执行的操作，但不实际部署",
-	DeployReleaseLive: "✓ 版本 %s 已在 %s 上线",
+	DeployFailed:      "部署失败: %v",
+	DeployDryRunFlag:  "显示部署过程但不实际执行",
+	DeployReleaseLive: "✓ 版本 %s 现已在 %s 上线",
 	DeployDryRunPlan:  "部署计划:",
-	DeployFromDirFlag: "从指定目录部署，而不是创建空目录",
+	DeployFromDirFlag: "从特定目录部署而不是从空目录",
 
 	// releases command
 	ReleasesShortDesc:  "列出所有已部署的版本",
-	ReleasesLongDesc:   "列出在 releases 目录中找到的所有版本。",
-	ReleasesListHeader: "📋 已部署的版本：",
+	ReleasesLongDesc:   "列出在版本目录中找到的所有版本。",
+	ReleasesListHeader: "📋 已部署的版本:",
 	ReleasesNoReleases: "未找到任何版本。",
 	ReleasesCurrent:    " (当前)",
 	ReleasesHeader:     "%-18s %s",
 	ErrorReleasesList:  "列出版本失败: %v",
 
 	// rollback command
-	RollbackShortDesc:  "回滚到上一个版本",
-	RollbackLongDesc:   "通过切换 'current' 符号链接将应用程序回滚到指定的版本。",
+	RollbackShortDesc:  "回滚到之前的版本",
+	RollbackLongDesc:   "通过切换'current'符号链接，将应用程序回滚到指定的版本。",
 	RollbackStarting:   "正在回滚到版本 %s...",
 	RollbackSuccess:    "成功回滚到 %s。",
-	RollbackFailed:     "回滚失败：%v",
-	RollbackToRelease:  "🔄 回滚到版本：%s",
-	RollbackNoReleases: "没有找到可回滚的版本",
+	RollbackFailed:     "回滚失败: %v",
+	RollbackToRelease:  "🔄 正在回滚到版本: %s",
+	RollbackNoReleases: "未找到可回滚的版本",
 
 	// Status Command
 	StatusShortDesc:        "显示部署状态",
 	StatusLongDesc:         "显示当前部署的版本和其他状态信息。",
-	StatusCurrentRelease:   "当前版本：%s",
-	StatusNoRelease:        "没有激活的版本",
-	StatusAppName:          "应用名称：%s",
-	StatusDeployPath:       "部署路径：%s",
-	StatusServerInfo:       "服务器：%s@%s:%d",
-	StatusActive:           "激活",
-	StatusDirectoryDetails: "目录详情：",
-	StatusDirFailed:        "  - 无法获取目录详情：%v",
+	StatusCurrentRelease:   "当前版本: %s",
+	StatusNoRelease:        "没有活动的版本",
+	StatusAppName:          "应用: %s",
+	StatusDeployPath:       "部署路径: %s",
+	StatusServerInfo:       "服务器: %s@%s:%d",
+	StatusActive:           "活动",
+	StatusDirectoryDetails: "目录详情:",
+	StatusDirFailed:        "  - 无法获取目录详情: %v",
+
+	// Service Command
+	ServiceShortDesc:          "管理 Revlay 服务",
+	ServiceLongDesc:           "管理 Revlay 服务列表，包括添加、删除和列出服务。",
+	ServiceStartShortDesc:     "启动一个服务",
+	ServiceStartLongDesc:      "启动全局服务列表中的指定服务。",
+	ServiceStarting:           "正在启动服务 '%s'...",
+	ServiceStartSuccess:       "✅ 服务 '%s' 已成功启动，进程ID: %d。",
+	ServiceStartFailed:        "❌ 启动服务 '%s' 失败: %v",
+	ServiceStartNotConfigured: "❌ 服务 '%s' 没有配置启动命令，无法启动。",
+	ServiceStopShortDesc:      "停止一个服务",
+	ServiceStopLongDesc:       "停止全局服务列表中的指定服务。",
+	ServiceStopping:           "正在停止服务 '%s'...",
+	ServiceStopSuccess:        "✅ 服务 '%s' 已成功停止。",
+	ServiceStopFailed:         "❌ 停止服务 '%s' 失败: %v",
+	ServiceStopNotConfigured:  "❌ 服务 '%s' 没有配置停止命令，无法停止。",
+	ServiceStopNotRunning:     "⚠️ 服务 '%s' 未运行。",
+	ServiceNotFound:           "❌ 未找到服务 '%s'。",
+	ServiceIdRequired:         "请指定服务 ID。",
+	ServiceNoReleaseFound:     "❌ 服务 '%s' 未部署任何版本。",
+	ServiceNotConfigured:      "❌ 服务 '%s' 配置不完整，无法执行操作。",
+	ServiceAlreadyRunning:     "⚠️ 服务 '%s' 已在运行，进程ID: %d。",
+	ServiceStalePidFile:       "发现过时的PID文件，启动前将自动删除。",
 
 	// Push Command
-	PushShortDesc:        "推送本地目录到远程服务器并部署",
-	PushLongDesc:         `此命令使用rsync将本地目录推送到远程服务器，并在远程机器上触发'revlay deploy'。\n\n它通过打包、传输和在单个步骤中激活新版本来简化部署过程。`,
-	PushStarting:         "🚀 开始推送到 %s 应用 '%s'...",
+	PushShortDesc:        "推送本地目录到远程并部署",
+	PushLongDesc:         `此命令使用rsync将本地目录推送到远程服务器，然后触发远程机器上的'revlay deploy'命令。\n\n它通过在一个步骤中打包、传输和激活新版本，简化了部署过程。`,
+	PushStarting:         "🚀 开始推送到 %s 的应用 '%s'...",
 	PushCheckingRemote:   "🔎 检查远程环境...",
-	PushRemoteFound:      "✅ 远程'revlay'命令已找到。",
+	PushRemoteFound:      "✅ 找到远程'revlay'命令。",
 	PushCreatingTempDir:  "📁 在远程创建临时目录...",
 	PushTempDirCreated:   "✅ 已创建临时目录: %s",
 	PushCleaningUp:       "\n🧹 清理远程临时目录...",
@@ -275,39 +321,39 @@ var chineseMessages = Messages{
 	PushCleanupComplete:  "✅ 清理完成。",
 	PushSyncingFiles:     "🚚 同步文件到 %s...",
 	PushSyncComplete:     "✅ 文件同步成功完成。",
-	PushTriggeringDeploy: "🚢 正在为应用 '%s' 触发远程部署...",
-	PushComplete:         "\n🎉 推送和部署成功完成！",
+	PushTriggeringDeploy: "🚢 触发远程部署应用 '%s'...",
+	PushComplete:         "\n🎉 推送和部署成功完成!",
 
 	// Deployment Steps
 	DeployPreflightChecks:             "执行预检...",
-	DeployLockError:                   "获取部署锁失败：%v",
-	DeployAlreadyInProgress:           "另一个部署似乎已在进行中 (锁定文件存在)。如果这不是真的，请手动移除 'revlay.lock' 文件。",
-	DeployCreatingDir:                 "  - 正在创建目录: %s",
-	DeployDirCreationError:            "无法创建目录 %s: %v",
+	DeployLockError:                   "获取部署锁失败: %v",
+	DeployAlreadyInProgress:           "另一个部署似乎正在进行中（锁文件存在）。如果不是这样，请手动删除'revlay.lock'。",
+	DeployCreatingDir:                 "  - 创建目录: %s",
+	DeployDirCreationError:            "创建目录 %s 失败: %v",
 	DeploySetupDirs:                   "设置目录...",
 	DeployEnsuringDir:                 "  - 确保目录存在: %s",
 	DeployPopulatingDir:               "填充版本目录...",
 	DeployCopyingContent:              "  - 从 %s 复制内容",
 	DeployMovingContent:               "  - 从 %s 移动内容",
-	DeployRenameFailed:                "  - 重命名失败，改为复制...",
-	DeployCreatedEmpty:                "  - 已创建空版本目录: %s",
-	DeployEmptyNote:                   "  - 注意: 未指定源目录。使用部署前钩子来填充此目录。",
-	DeployLinkingShared:               "步骤 3: 链接共享路径...",
+	DeployRenameFailed:                "  - 重命名失败，回退到复制...",
+	DeployCreatedEmpty:                "  - 创建空版本目录: %s",
+	DeployEmptyNote:                   "  - 注意: 未指定源目录。使用部署前钩子填充此目录。",
+	DeployLinkingShared:               "链接共享路径...",
 	DeployLinking:                     "  - 链接: %s -> %s",
-	DeployPreHooks:                    "步骤 4: 运行部署前钩子...",
-	DeployActivating:                  "⑤ 激活新版本...",
+	DeployPreHooks:                    "执行部署前钩子...",
+	DeployActivating:                  "激活新版本...",
 	DeployPointingSymlink:             "  - 将'current'符号链接指向: %s",
 	DeployStoppingService:             "停止当前服务...",
 	DeployStopServiceFailed:           "警告：停止旧服务失败：%v。可能没有服务在运行。",
 	DeployStartingService:             "启动新服务...",
 	DeployStartServiceFailed:          "启动新服务失败：%v",
-	DeployRestartingService:           "⑥ 重启服务...",
-	DeployHealthCheck:                 "⑦ 执行健康检查...",
+	DeployRestartingService:           "重启服务...",
+	DeployHealthCheck:                 "执行健康检查...",
 	DeployHealthAttempt:               "  - 健康检查尝试 #%d 对 %s...",
-	DeployHealthFailed:                " 失败",
-	DeployHealthPassed:                " 成功.",
-	DeployPostHooks:                   "⑧ 执行部署后钩子...",
-	DeployPruning:                     "⑨ 清理旧版本...",
+	DeployHealthFailed:                " ✗",
+	DeployHealthPassed:                " ✓",
+	DeployPostHooks:                   "执行部署后钩子...",
+	DeployPruning:                     "清理旧版本...",
 	DeployPruningRelease:              "清理旧版本: %s",
 	DeployCmdExecFailed:               "命令执行失败: %s\n%s",
 	DeployZeroDowntimeWarning:         "警告: 零停机部署目前是简化版，行为与标准部署相同。",
@@ -437,6 +483,29 @@ var englishMessages = Messages{
 	StatusActive:           "Active",
 	StatusDirectoryDetails: "Directory Details:",
 	StatusDirFailed:        "  - Could not get directory details: %v",
+
+	// Service Command
+	ServiceShortDesc:          "Manage Revlay services",
+	ServiceLongDesc:           "Manage the Revlay services list, including adding, removing, and listing services.",
+	ServiceStartShortDesc:     "Start a service",
+	ServiceStartLongDesc:      "Start a service from the global services list.",
+	ServiceStarting:           "Starting service '%s'...",
+	ServiceStartSuccess:       "✅ Service '%s' started successfully with PID: %d.",
+	ServiceStartFailed:        "❌ Failed to start service '%s': %v",
+	ServiceStartNotConfigured: "❌ Service '%s' has no start command configured.",
+	ServiceStopShortDesc:      "Stop a service",
+	ServiceStopLongDesc:       "Stop a service from the global services list.",
+	ServiceStopping:           "Stopping service '%s'...",
+	ServiceStopSuccess:        "✅ Service '%s' stopped successfully.",
+	ServiceStopFailed:         "❌ Failed to stop service '%s': %v",
+	ServiceStopNotConfigured:  "❌ Service '%s' has no stop command configured.",
+	ServiceStopNotRunning:     "⚠️ Service '%s' is not running.",
+	ServiceNotFound:           "❌ Service '%s' not found.",
+	ServiceIdRequired:         "Please specify a service ID.",
+	ServiceNoReleaseFound:     "❌ No releases found for service '%s'.",
+	ServiceNotConfigured:      "❌ Service '%s' is not properly configured.",
+	ServiceAlreadyRunning:     "⚠️ Service '%s' is already running with PID: %d.",
+	ServiceStalePidFile:       "Found stale PID file, removing it before starting.",
 
 	// Push Command
 	PushShortDesc:        "Push local directory to remote and deploy",

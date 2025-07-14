@@ -10,4 +10,4 @@ echo "Starting service..."
 nohup sh -c "$USER_COMMAND" > "$OUT_LOG_PATH" 2> "$ERR_LOG_PATH" &
 PID=$!
 echo "Service starting with PID: $PID"
-echo "$PID:1752467167" > "$PID_FILE"
+echo "$PID:1752494576" > "$PID_FILE"

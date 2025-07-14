@@ -60,10 +60,50 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(NewProxyCommand())   // Add the new proxy command
 	cmd.AddCommand(NewServiceCommand()) // 添加服务管理命令
 	cmd.AddCommand(NewPsCommand())      // 添加 ps 命令作为 service list 的别名
+	cmd.AddCommand(NewStartCommand())   // 添加 start 命令作为 service start 的别名
+	cmd.AddCommand(NewStopCommand())    // 添加 stop 命令作为 service stop 的别名
 
 	// Add persistent flags to the root command.
 	cmd.PersistentFlags().StringP("config", "c", "", i18n.T().ConfigFileFlag)
 	cmd.PersistentFlags().StringP("lang", "l", "", i18n.T().LanguageFlag)
 
+	return cmd
+}
+
+// NewStartCommand 创建 start 命令作为 service start 的别名
+func NewStartCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "start [id]",
+		Short: i18n.T().ServiceStartShortDesc,
+		Long:  i18n.T().ServiceStartLongDesc + " 这是 'service start' 命令的别名。",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// 直接调用 service start 命令的逻辑
+			serviceCmd := NewServiceCommand()
+			startCmd := NewServiceStartCommand()
+			serviceCmd.AddCommand(startCmd)
+			startCmd.SetArgs(args)
+			return startCmd.Execute()
+		},
+	}
+	return cmd
+}
+
+// NewStopCommand 创建 stop 命令作为 service stop 的别名
+func NewStopCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "stop [id]",
+		Short: i18n.T().ServiceStopShortDesc,
+		Long:  i18n.T().ServiceStopLongDesc + " 这是 'service stop' 命令的别名。",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// 直接调用 service stop 命令的逻辑
+			serviceCmd := NewServiceCommand()
+			stopCmd := NewServiceStopCommand()
+			serviceCmd.AddCommand(stopCmd)
+			stopCmd.SetArgs(args)
+			return stopCmd.Execute()
+		},
+	}
 	return cmd
 }
