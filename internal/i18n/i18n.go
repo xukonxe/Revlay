@@ -216,6 +216,9 @@ type Messages struct {
 	ServiceCommand      string
 	ServiceHealthCheck  string
 	ServiceRestartDelay string
+
+	ServiceGracefulShutdown string
+	ServiceStartInitiated   string
 }
 
 var currentLanguage Language = Chinese
@@ -418,6 +421,9 @@ var chineseMessages = Messages{
 	ServiceCommand:      "服务命令",
 	ServiceHealthCheck:  "健康检查",
 	ServiceRestartDelay: "重启延迟",
+
+	ServiceGracefulShutdown: "正在为进程 %d 请求平滑关闭...",
+	ServiceStartInitiated:   "服务启动已初始化。PID: %d, 日志: %s",
 }
 
 // English messages
@@ -505,10 +511,10 @@ var englishMessages = Messages{
 	ServiceNoReleaseFound:     "❌ No releases found for service '%s'.",
 	ServiceNotConfigured:      "❌ Service '%s' is not properly configured.",
 	ServiceAlreadyRunning:     "⚠️ Service '%s' is already running with PID: %d.",
-	ServiceStalePidFile:       "Found stale PID file, removing it before starting.",
+	ServiceStalePidFile:       "Stale PID file found and removed.",
 
 	// Push Command
-	PushShortDesc:        "Push local directory to remote and deploy",
+	PushShortDesc:        "Push local files to the server (via rsync)",
 	PushLongDesc:         `This command uses rsync to push a local directory to a remote server and then triggers 'revlay deploy' on the remote machine.\n\nIt streamlines the deployment process by packaging, transferring, and activating a new release in a single step.`,
 	PushStarting:         "🚀 Starting push to %s for app '%s'...",
 	PushCheckingRemote:   "🔎 Checking remote environment...",
@@ -613,10 +619,13 @@ var englishMessages = Messages{
 	DeploymentModeDesc: "Deployment Mode Description",
 
 	ServiceManagement:   "Service Management",
-	ServicePort:         "Service Port",
-	ServiceCommand:      "Service Command",
+	ServicePort:         "Port",
+	ServiceCommand:      "Command",
 	ServiceHealthCheck:  "Health Check",
 	ServiceRestartDelay: "Restart Delay",
+
+	ServiceGracefulShutdown: "Requesting graceful shutdown for process with PID %d...",
+	ServiceStartInitiated:   "Service start initiated. PID: %d, Logs: %s",
 }
 
 // SetLanguage sets the current language

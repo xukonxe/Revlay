@@ -3,16 +3,11 @@ package deployment
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
-	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/gofrs/flock"
@@ -50,7 +45,8 @@ type Release struct {
 
 // LocalDeployer handles deployments on the local machine.
 type LocalDeployer struct {
-	config *config.Config
+	config    *config.Config
+	enableTUI bool
 }
 
 // NewLocalDeployer creates a new deployer for local operations.
@@ -60,15 +56,19 @@ func NewLocalDeployer(cfg *config.Config) Deployer {
 	}
 }
 
+// NewLocalDeployerWithOptions 创建一个新的本地部署器，并支持额外选项
+func NewLocalDeployerWithOptions(cfg *config.Config, enableTUI bool) Deployer {
+	return &LocalDeployer{
+		config:    cfg,
+		enableTUI: enableTUI,
+	}
+}
+
 // runLocalCommand executes a command on the local machine.
 func (d *LocalDeployer) runLocalCommand(name string, arg ...string) (string, error) {
 	fmt.Println(color.Cyan("  -> Executing: %s %s", name, strings.Join(arg, " ")))
 	cmd := exec.Command(name, arg...)
-	cmd.Dir = d.config.GetReleasePathByName("") // Fallback directory
-
-	// If a specific release path exists, run the command there.
-	// This part needs context, assuming release path is created before running commands inside it.
-	// For now, let's keep it simple. A better approach might be to pass the releaseName.
+	cmd.Dir = d.config.GetReleasesPath() // Fallback directory
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -90,464 +90,110 @@ func (d *LocalDeployer) Deploy(releaseName string, sourceDir string) error {
 	}
 	defer fileLock.Unlock()
 
-	switch d.config.Deploy.Mode {
-	case config.ZeroDowntimeMode:
-		return d.deployZeroDowntime(releaseName, sourceDir)
-	case config.ShortDowntimeMode:
-		return d.deployShortDowntime(releaseName, sourceDir)
-	default:
-		log.Printf("Unknown deployment mode '%s', falling back to short_downtime.", d.config.Deploy.Mode)
-		return d.deployShortDowntime(releaseName, sourceDir)
-	}
-}
-
-func (d *LocalDeployer) deployShortDowntime(releaseName string, sourceDir string) error {
-	fmt.Println(color.Cyan(i18n.T().DeployExecShortDowntime))
-	log := newStepLogger()
-
-	// 在更改任何内容之前，获取当前版本以便潜在的回滚
-	previousReleaseName, err := d.GetCurrentRelease()
-	if err != nil {
-		// 记录警告但继续，因为这可能是第一次部署
-		log.Warn(fmt.Sprintf("无法确定当前版本用于回滚: %v", err))
-		previousReleaseName = ""
-	}
-
-	// 步骤 1: 预检
-	log.Print(i18n.T().DeployPreflightChecks)
+	// Before deploy, run pre-flight checks
 	if err := d.preflightChecks(releaseName); err != nil {
 		return err
 	}
 
-	// 步骤 2: 设置目录
-	log.Print(i18n.T().DeploySetupDirs)
-	if err := d.setupDirectoriesAndRelease(releaseName, sourceDir); err != nil {
-		return err
-	}
-	if err := d.linkSharedPaths(releaseName); err != nil {
-		return err
+	// Run pre-deployment hooks
+	if err := d.runHooks(d.config.Hooks.PreDeploy, "pre-deploy"); err != nil {
+		return fmt.Errorf("pre-deploy hook failed: %w", err)
 	}
 
-	// 步骤 3: 停止当前服务
-	log.Print(i18n.T().DeployStoppingService)
-	if err := d.stopService(); err != nil {
-		log.Warn(fmt.Sprintf(i18n.T().DeployStopServiceFailed, err))
+	var deployErr error
+	switch d.config.Deploy.Mode {
+	case config.ZeroDowntimeMode:
+		deployErr = d.deployZeroDowntime(releaseName, sourceDir)
+	case config.ShortDowntimeMode:
+		deployErr = d.deployShortDowntime(releaseName, sourceDir)
+	default:
+		log.Printf("Unknown deployment mode '%s', falling back to short_downtime.", d.config.Deploy.Mode)
+		deployErr = d.deployShortDowntime(releaseName, sourceDir)
 	}
 
-	// 步骤 4: 激活新版本
-	log.Print(i18n.T().DeployActivating)
-	if err := d.switchSymlink(releaseName); err != nil {
-		// 如果切换符号链接失败，旧服务已经停止。
-		// 我们应该尝试重新启动旧服务。
-		if previousReleaseName != "" {
-			log.Warn("切换符号链接失败，尝试重新启动之前的版本。")
-			d.startService(previousReleaseName) // 尽力重启
+	if deployErr != nil {
+		// Run post-deployment hooks even if deploy failed (for cleanup)
+		if err := d.runHooks(d.config.Hooks.PostDeploy, "post-deploy"); err != nil {
+			log.Printf("post-deploy hook failed after a failed deployment: %v", err)
 		}
-		return err
+		return deployErr
 	}
 
-	// 步骤 5 和 6：启动新服务并执行健康检查
-	startAndCheckError := func() error {
-		log.Print(i18n.T().DeployStartingService)
-		if err := d.startService(releaseName); err != nil {
-			return fmt.Errorf(i18n.T().DeployStartServiceFailed, err)
-		}
-		log.Print(i18n.T().DeployHealthCheck)
-		if err := d.performHealthCheck(d.config.Service.Port); err != nil {
-			// 回滚前停止失败的服务
-			d.stopService()
-			return err
-		}
-		return nil
-	}()
-
-	if startAndCheckError != nil {
-		log.Warn(fmt.Sprintf("部署失败: %v", startAndCheckError))
-
-		if previousReleaseName == "" {
-			return fmt.Errorf("部署失败，且没有可回滚的先前版本。服务已停止")
-		}
-
-		fmt.Println(color.Yellow(fmt.Sprintf("尝试回滚到先前版本: %s", previousReleaseName)))
-
-		// 回滚步骤 1：将符号链接指回旧版本
-		if err := d.switchSymlink(previousReleaseName); err != nil {
-			return fmt.Errorf("严重错误: 部署失败，随后的回滚在切换符号链接时也失败。服务可能已停止。错误: %w", err)
-		}
-
-		// 回滚步骤 2：重新启动旧服务
-		if err := d.startService(previousReleaseName); err != nil {
-			return fmt.Errorf("严重错误: 部署失败，随后的回滚在重新启动旧服务时也失败。服务可能已停止。错误: %w", err)
-		}
-
-		fmt.Println(color.Green(fmt.Sprintf("成功回滚到版本 %s。", previousReleaseName)))
-		return fmt.Errorf("'%s' 的部署失败，但成功回滚到 '%s'", releaseName, previousReleaseName)
+	// Run post-deployment hooks
+	if err := d.runHooks(d.config.Hooks.PostDeploy, "post-deploy"); err != nil {
+		return fmt.Errorf("post-deploy hook failed: %w", err)
 	}
 
-	// 步骤 7: 清理旧版本
-	log.Print(i18n.T().DeployPruning)
-	return d.Prune()
-}
-
-func (d *LocalDeployer) deployZeroDowntime(releaseName string, sourceDir string) error {
-	fmt.Println(color.Cyan(i18n.T().DeployExecZeroDowntime))
-
-	// 定义一个变量来存储步骤文本
-	var stepText string
-
-	// 步骤 1: 设置
-	stepText = fmt.Sprintf("第%s步", convertToChineseNumber(1))
-	fmt.Println(color.Cyan("%s: %s", stepText, i18n.T().DeploySetupDirs))
-	if err := d.setupDirectoriesAndRelease(releaseName, sourceDir); err != nil {
-		return err
-	}
-	if err := d.linkSharedPaths(releaseName); err != nil {
-		return err
-	}
-
-	// 步骤 2: 确定端口
-	stepText = fmt.Sprintf("第%s步", convertToChineseNumber(2))
-	fmt.Println(color.Cyan("%s: %s", stepText, i18n.T().DeployDeterminePorts))
-	oldPort, err := d.getCurrentPortFromState()
-	if err != nil {
-		log.Print(color.Yellow(fmt.Sprintf("警告: 无法确定当前端口: %v。默认使用主端口。", err)))
-		oldPort = d.config.Service.Port
-	}
-	newPort := d.config.Service.AltPort
-	if oldPort == d.config.Service.AltPort {
-		newPort = d.config.Service.Port
-	}
-	fmt.Printf(i18n.T().DeployCurrentPortInfo+"\n", oldPort)
-	fmt.Printf(i18n.T().DeployNewPortInfo+"\n", newPort)
-
-	// Step 3: Start the new version
-	stepText = fmt.Sprintf("第%s步", convertToChineseNumber(3))
-	fmt.Println(color.Cyan("%s: %s", stepText, fmt.Sprintf(i18n.T().DeployStartNewRelease, newPort)))
-	var newReleaseCmd *exec.Cmd
-	var processDone <-chan error
-	if d.config.Service.StartCommand != "" {
-		env := map[string]string{"PORT": fmt.Sprintf("%d", newPort)}
-		var err error
-		newReleaseCmd, processDone, err = d.runCommandAttachedAsyncWithStreaming(releaseName, d.config.Service.StartCommand, env)
-		if err != nil {
-			return fmt.Errorf("failed to run start command for new release: %w", err)
-		}
-	}
-
-	// Step 4: Perform health check while monitoring the process
-	stepText = fmt.Sprintf("第%s步", convertToChineseNumber(4))
-	fmt.Println(color.Cyan("%s: %s", stepText, fmt.Sprintf(i18n.T().DeployHealthCheckOnPort, newPort)))
-
-	healthCheckDone := make(chan error, 1)
-	go func() {
-		healthCheckDone <- d.performHealthCheck(newPort)
-	}()
-
-	select {
-	case err := <-processDone:
-		// Process exited before health check completed
-		if err != nil {
-			return fmt.Errorf(i18n.Sprintf(i18n.T().DeployErrProcExitedEarlyWithError, err))
-		}
-		// If the process exits cleanly, it might be a short-lived task, not a long-running service.
-		// Or it could be a misconfiguration. We should check the health endpoint one last time.
-		if errHealth := d.performHealthCheck(newPort); errHealth != nil {
-			return fmt.Errorf(i18n.T().DeployErrProcExitedEarly)
-		}
-	case err := <-healthCheckDone:
-		if err != nil {
-			// Health check failed, kill the new process
-			if newReleaseCmd != nil && newReleaseCmd.Process != nil {
-				newReleaseCmd.Process.Kill()
-			}
-			return fmt.Errorf("health check failed: %w", err)
-		}
-	}
-
-	// Step 5: Switch proxy traffic
-	stepText = fmt.Sprintf("第%s步", convertToChineseNumber(5))
-	fmt.Println(color.Cyan("%s: %s", stepText, fmt.Sprintf(i18n.T().DeploySwitchProxy, newPort)))
-	if err := d.writeStateFile(newPort); err != nil {
-		if newReleaseCmd != nil && newReleaseCmd.Process != nil {
-			log.Printf("Failed to write active port to state file. Killing new process (PID: %d)...", newReleaseCmd.Process.Pid)
-			if errKill := newReleaseCmd.Process.Kill(); errKill != nil {
-				log.Print(color.Yellow(fmt.Sprintf("Warning: failed to kill process %d: %v", newReleaseCmd.Process.Pid, errKill)))
-			}
-		}
-		return fmt.Errorf("failed to write active port to state file: %w", err)
-	}
-
-	// Step 6: Activate new release symlink
-	stepText = fmt.Sprintf("第%s步", convertToChineseNumber(6))
-	fmt.Println(color.Cyan("%s: %s", stepText, i18n.T().DeployActivateSymlink))
-	if err := d.switchSymlink(releaseName); err != nil {
-		return err
-	}
-
-	// Step 7: Stop old service
-	gracePeriod := time.Duration(d.config.Service.GracefulTimeout) * time.Second
-	stepText = fmt.Sprintf("第%s步", convertToChineseNumber(7))
-	fmt.Println(color.Cyan("%s: %s", stepText, fmt.Sprintf(i18n.T().DeployStopOldService, oldPort, gracePeriod)))
-	if gracePeriod > 0 {
-		time.Sleep(gracePeriod)
-	}
-	// TODO: refactor stopService for zero-downtime
-	// if err := d.stopServiceByPort(oldPort); err != nil { ... }
-
-	// Step 8: Prune old releases
-	stepText = fmt.Sprintf("第%s步", convertToChineseNumber(8))
-	fmt.Println(color.Cyan("%s: %s", stepText, i18n.T().DeployPruning))
-	return d.Prune()
-}
-
-// DeployZeroDowntime performs a zero-downtime deployment.
-// For now, this will be a simplified version. A full implementation
-// would involve health checks and port switching logic.
-func (d *LocalDeployer) DeployZeroDowntime(releaseName string, sourceDir string) error {
-	fmt.Println(color.Yellow(i18n.T().DeployZeroDowntimeWarning))
-	return d.Deploy(releaseName, sourceDir)
-}
-
-// Rollback reverts to a previous release.
-func (d *LocalDeployer) Rollback(releaseName string) error {
-	// Verify the release to rollback to actually exists
-	releasePath := d.config.GetReleasePathByName(releaseName)
-	if _, err := os.Stat(releasePath); os.IsNotExist(err) {
-		return fmt.Errorf("cannot roll back: release '%s' does not exist", releaseName)
-	}
-
-	fmt.Printf(i18n.T().DeployRollbackStart+"\n", releaseName)
-	if err := d.switchSymlink(releaseName); err != nil {
-		return err
-	}
-	fmt.Println(i18n.T().DeployRollbackSuccess)
 	return nil
 }
 
-// ListReleases lists all releases on the local filesystem.
-func (d *LocalDeployer) ListReleases() ([]string, error) {
-	releasesPath := d.config.GetReleasesPath()
-	files, err := os.ReadDir(releasesPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return []string{}, nil // No releases yet, return empty list
-		}
-		return nil, err
-	}
+func (d *LocalDeployer) Rollback(releaseName string) error {
+	fmt.Println(color.Cyan(i18n.T().RollbackStarting, releaseName))
 
-	var releases []string
-	for _, file := range files {
-		if file.IsDir() {
-			releases = append(releases, file.Name())
-		}
-	}
-	// Sort by name (timestamp)
-	sort.Strings(releases)
-	return releases, nil
-}
-
-// Prune removes old releases according to the keep_releases setting.
-func (d *LocalDeployer) Prune() error {
-	keep := d.config.App.KeepReleases
-	if keep < 0 {
-		// keep = -1 means keep all releases
-		return nil
-	}
-
+	// 1. Get list of releases
 	releases, err := d.ListReleases()
 	if err != nil {
 		return err
 	}
-
-	// Sort releases by name, which should correspond to date
-	sort.Slice(releases, func(i, j int) bool {
-		return releases[i] < releases[j]
-	})
-
-	var releasesToRemove []string
-	currentReleaseName, _ := d.GetCurrentRelease()
-
-	// How many releases we can safely remove
-	canRemoveCount := len(releases) - keep
-
-	for _, release := range releases {
-		if canRemoveCount <= 0 {
+	var found bool
+	for _, r := range releases {
+		if r == releaseName {
+			found = true
 			break
 		}
-		// Never remove the current release
-		if release == currentReleaseName {
-			continue
-		}
-		releasesToRemove = append(releasesToRemove, release)
-		canRemoveCount--
+	}
+	if !found {
+		return fmt.Errorf(i18n.T().ErrorReleaseNotFound, releaseName)
 	}
 
-	for _, release := range releasesToRemove {
-		fmt.Printf(i18n.T().DeployPruningRelease+"\n", release)
-		if err := os.RemoveAll(filepath.Join(d.config.GetReleasesPath(), release)); err != nil {
-			// Log error but continue trying to prune others
-			log.Printf("  - Failed to remove %s: %v\n", release, err)
-		}
+	// 2. Stop current service
+	fmt.Println("  -> Stopping current service...")
+	if err := d.stopService(nil); err != nil {
+		fmt.Printf(color.Yellow(i18n.T().DeployStopServiceFailed, err))
 	}
 
-	return nil
-}
-
-// GetCurrentRelease reads the symlink to find the current release name.
-func (d *LocalDeployer) GetCurrentRelease() (string, error) {
-	currentPath := d.config.GetCurrentPath()
-	target, err := os.Readlink(currentPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", nil // No current link
-		}
-		return "", err
-	}
-	return filepath.Base(target), nil
-}
-
-func (d *LocalDeployer) waitForService(port int) error {
-	maxRetries := d.config.Service.HealthCheckRetries
-	if maxRetries <= 0 {
-		maxRetries = 5 // 默认重试次数
-	}
-
-	timeout := d.config.Service.HealthCheckTimeout
-	if timeout <= 0 {
-		timeout = 5 // 默认超时时间（秒）
-	}
-
-	interval := d.config.Service.HealthCheckInterval
-	if interval <= 0 {
-		interval = 2 // 默认间隔时间（秒）
-	}
-
-	client := http.Client{
-		Timeout: time.Duration(timeout) * time.Second,
-	}
-	healthCheckURL := fmt.Sprintf("http://localhost:%d%s", port, d.config.Service.HealthCheck)
-
-	for i := 0; i < maxRetries; i++ {
-		fmt.Printf(color.Yellow("  - 健康检查尝试 #%d 对 %s", i+1, healthCheckURL))
-		resp, err := client.Get(healthCheckURL)
-		if err == nil && resp.StatusCode >= 200 && resp.StatusCode < 400 {
-			resp.Body.Close()
-			fmt.Println(color.Green(" ✓"))
-			return nil // Service is healthy
-		}
-		if resp != nil {
-			resp.Body.Close()
-		}
-		fmt.Println(color.Red(" ✗"))
-		time.Sleep(time.Duration(interval) * time.Second) // 使用配置的间隔时间
-	}
-
-	return fmt.Errorf("服务在 %d 次尝试后未响应: %s", maxRetries, healthCheckURL)
-}
-
-func (d *LocalDeployer) setupDirectories() error {
-	paths := []string{
-		d.config.GetReleasesPath(),
-		d.config.GetSharedPath(),
-		d.config.GetPidsPath(),
-		d.config.GetLogsPath(),
-	}
-	for _, path := range paths {
-		fmt.Printf(i18n.T().DeployEnsuringDir+"\n", path)
-		if err := os.MkdirAll(path, 0755); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (d *LocalDeployer) setupDirectoriesAndRelease(releaseName string, sourceDir string) error {
-	if err := d.setupDirectories(); err != nil {
+	// 3. Switch symlink
+	fmt.Println("  -> Activating rollback release...")
+	if err := d.switchSymlink(releaseName); err != nil {
 		return err
 	}
 
-	fmt.Println(color.Cyan(i18n.T().DeployPopulatingDir))
-	releasePath := d.config.GetReleasePathByName(releaseName)
-	if sourceDir != "" {
-		fmt.Printf(i18n.T().DeployCopyingContent+"\n", sourceDir)
-		if err := copyDirectory(sourceDir, releasePath); err != nil {
-			return fmt.Errorf("failed to copy from source directory %s: %w", sourceDir, err)
-		}
-	} else {
-		if err := os.MkdirAll(releasePath, 0755); err != nil {
-			return fmt.Errorf("failed to create release directory %s: %w", releasePath, err)
-		}
-		fmt.Printf(i18n.T().DeployCreatedEmpty+"\n", releasePath)
-		fmt.Println(color.Yellow(i18n.T().DeployEmptyNote))
-	}
-
-	return nil
-}
-
-func (d *LocalDeployer) linkSharedPaths(releaseName string) error {
-	releasePath := d.config.GetReleasePathByName(releaseName)
-	sharedPath := d.config.GetSharedPath()
-
-	// Ensure the base shared directory exists, so we don't fail if it's empty
-	if err := os.MkdirAll(sharedPath, 0755); err != nil {
-		return fmt.Errorf("failed to create base shared directory: %w", err)
-	}
-
-	items, err := os.ReadDir(sharedPath)
-	if err != nil {
-		return fmt.Errorf("failed to read shared directory: %w", err)
-	}
-
-	for _, item := range items {
-		target := filepath.Join(sharedPath, item.Name())
-		link := filepath.Join(releasePath, item.Name())
-		fmt.Printf(i18n.T().DeployLinking+"\n", link, target)
-		if err := os.Symlink(target, link); err != nil {
-			return fmt.Errorf("failed to create symlink for %s: %w", item.Name(), err)
-		}
-	}
-
-	return nil
-}
-
-func (d *LocalDeployer) switchSymlink(releaseName string) error {
-	releasePath := d.config.GetReleasePathByName(releaseName)
-	currentPath := d.config.GetCurrentPath()
-
-	fmt.Printf(i18n.T().DeployPointingSymlink+"\n", releasePath)
-
-	tempLink := currentPath + "_tmp"
-	if err := os.Symlink(releasePath, tempLink); err != nil {
+	// 4. Start service
+	fmt.Println("  -> Starting service...")
+	if err := d.startService(releaseName, nil); err != nil {
 		return err
 	}
-	if err := os.Rename(tempLink, currentPath); err != nil {
-		return err
-	}
+
+	fmt.Println(color.Green(i18n.T().RollbackSuccess, releaseName))
 	return nil
 }
 
-// GenerateReleaseTimestamp creates a timestamp string for a release.
 func GenerateReleaseTimestamp() string {
-	return time.Now().Format("20060102-150405")
+	return time.Now().UTC().Format("20060102150405")
 }
 
 func (d *LocalDeployer) runHooks(hooks []string, hookType string) error {
-	if len(hooks) > 0 {
-		for _, hook := range hooks {
-			if _, err := d.runCommandSyncWithStreaming("sh", "-c", hook); err != nil {
-				return err
-			}
-		}
+	if len(hooks) == 0 {
+		return nil
 	}
-	return nil
-}
+	fmt.Println(color.Cyan("  -> Running %s hooks...", hookType))
+	currentPath := d.config.GetCurrentPath()
 
-func (d *LocalDeployer) performHealthCheck(port int) error {
-	if d.config.Service.HealthCheck != "" {
-		if err := d.waitForService(port); err != nil {
-			return fmt.Errorf("health check failed: %w", err)
+	for _, hook := range hooks {
+		resolvedHook, err := d.resolveTemplate(hook, "") // releaseName is not relevant for all hooks
+		if err != nil {
+			return fmt.Errorf("could not resolve hook template '%s': %w", hook, err)
 		}
-		fmt.Println(color.Green("  - " + i18n.T().DeployHealthPassed))
+		parts := strings.Fields(resolvedHook)
+		if len(parts) == 0 {
+			continue
+		}
+		cmd := exec.Command(parts[0], parts[1:]...)
+		cmd.Dir = currentPath // Run hook in the context of the current code
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("hook '%s' failed: %s", resolvedHook, output)
+		}
 	}
 	return nil
 }
@@ -555,478 +201,113 @@ func (d *LocalDeployer) performHealthCheck(port int) error {
 func (d *LocalDeployer) runCommandSyncWithStreaming(name string, arg ...string) (string, error) {
 	fmt.Println(color.Cyan("  -> Executing: %s %s", name, strings.Join(arg, " ")))
 	cmd := exec.Command(name, arg...)
-	cmd.Dir = d.config.RootPath
+	cmd.Dir = d.config.GetReleasesPath() // Fallback directory
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("error creating stdout pipe for command: %w", err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("error creating stderr pipe for command: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
-		return "", err
+		return "", fmt.Errorf("error starting command: %w", err)
 	}
 
-	scanner := bufio.NewScanner(io.MultiReader(stdout, stderr))
-	for scanner.Scan() {
-		fmt.Printf("    %s\n", scanner.Text())
-	}
-
-	if err := cmd.Wait(); err != nil {
-		return "", err
-	}
-
-	return "", nil
-}
-
-func (d *LocalDeployer) runCommandAttachedAsyncWithStreaming(releaseName, command string, env map[string]string) (*exec.Cmd, <-chan error, error) {
-	finalCommand := command
-	if port, ok := env["PORT"]; ok {
-		finalCommand = strings.ReplaceAll(command, "${PORT}", port)
-	}
-
-	fullCommand := "sh"
-	args := []string{"-c", finalCommand}
-	fmt.Println(color.Cyan("  -> Executing: %s %s", fullCommand, strings.Join(args, " ")))
-	cmd := exec.Command(fullCommand, args...)
-	cmd.Dir = d.config.GetReleasePathByName(releaseName)
-
-	cmd.Env = os.Environ()
-	for k, v := range d.config.Deploy.Environment {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
-	}
-	for k, v := range env {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
-	}
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, nil, fmt.Errorf("could not get stdout pipe: %w", err)
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, nil, fmt.Errorf("could not get stderr pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return nil, nil, fmt.Errorf("could not start command: %w", err)
-	}
-
+	// Non-blocking read from stdout and stderr
+	var output strings.Builder
 	go func() {
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
-			fmt.Printf("[%s] %s\n", color.Yellow("new-release"), scanner.Text())
+			line := scanner.Text()
+			fmt.Println(line)
+			output.WriteString(line + "\n")
 		}
 	}()
-
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
-			fmt.Printf("[%s] %s\n", color.Red("new-release-err"), scanner.Text())
+			line := scanner.Text()
+			fmt.Fprintln(os.Stderr, line)
+			output.WriteString(line + "\n")
 		}
 	}()
 
-	done := make(chan error, 1)
+	if err := cmd.Wait(); err != nil {
+		return output.String(), fmt.Errorf("error waiting for command: %w", err)
+	}
+
+	return output.String(), nil
+}
+
+func (d *LocalDeployer) runCommandAttachedAsyncWithStreaming(releaseName, command string, env map[string]string) (*exec.Cmd, <-chan error, error) {
+	cmdStr, err := d.resolveTemplate(command, releaseName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("could not resolve command template: %w", err)
+	}
+
+	cmdParts := strings.Fields(cmdStr)
+	if len(cmdParts) == 0 {
+		return nil, nil, fmt.Errorf("empty command after resolving template")
+	}
+
+	cmd := exec.Command(cmdParts[0], cmdParts[1:]...)
+	cmd.Dir = d.resolvePath(d.config.GetReleasesPath(), releaseName)
+
+	// Set up environment variables
+	cmd.Env = os.Environ()
+	for key, value := range env {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
+	}
+
+	stdout, _ := cmd.StdoutPipe()
+	stderr, _ := cmd.StderrPipe()
+
+	err = cmd.Start()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to start command '%s': %w", cmdStr, err)
+	}
+
+	// Goroutine to stream stdout and stderr
+	go func() {
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			log.Printf("[%s-out] %s", releaseName, scanner.Text())
+		}
+	}()
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			log.Printf("[%s-err] %s", releaseName, scanner.Text())
+		}
+	}()
+
+	done := make(chan error)
 	go func() {
 		done <- cmd.Wait()
-		close(done)
 	}()
 
 	return cmd, done, nil
 }
 
-// stopService stops the current running service.
-func (d *LocalDeployer) stopService() error {
-	pidPath := d.resolvePath(d.config.Service.PidFile, "")
-	if _, err := os.Stat(pidPath); os.IsNotExist(err) {
-		return nil
-	}
-
-	content, err := os.ReadFile(pidPath)
-	if err != nil {
-		return fmt.Errorf("failed to read pid file: %w", err)
-	}
-
-	parts := strings.Split(strings.TrimSpace(string(content)), ":")
-	if len(parts) != 2 {
-		return fmt.Errorf("invalid pid file format in %s", pidPath)
-	}
-
-	pid, err := strconv.Atoi(parts[0])
-	if err != nil {
-		return fmt.Errorf("invalid pid in pid file: %w", err)
-	}
-
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		os.Remove(pidPath)
-		return nil
-	}
-
-	if err := process.Signal(syscall.Signal(0)); err != nil {
-		log.Printf("Process with PID %d not found, cleaning up stale PID file.", pid)
-		os.Remove(pidPath)
-		return nil
-	}
-
-	log.Printf("Requesting graceful shutdown for process with PID %d...", pid)
-	if err := process.Signal(syscall.SIGTERM); err != nil {
-		return fmt.Errorf("failed to send SIGTERM to process %d: %w", pid, err)
-	}
-
-	timeout := time.Duration(d.config.Service.GracefulTimeout) * time.Second
-	deadline := time.Now().Add(timeout)
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	for time.Now().Before(deadline) {
-		<-ticker.C
-		if err := process.Signal(syscall.Signal(0)); err != nil {
-			log.Println(color.Green("  -> Service stopped gracefully."))
-			os.Remove(pidPath)
-			return nil
-		}
-		log.Printf("  -> Waiting for service to stop... (%v remaining)", time.Until(deadline).Round(time.Second))
-	}
-
-	log.Println(color.Yellow("Service did not stop gracefully within the timeout. Forcing shutdown..."))
-	if err := process.Signal(syscall.SIGKILL); err != nil {
-		return fmt.Errorf("failed to send SIGKILL to process %d: %w", pid, err)
-	}
-	os.Remove(pidPath)
-	log.Println(color.Red("  -> Service forced to stop."))
-
-	return nil
-}
-
-// StopService stops the current running service (public wrapper).
-func (d *LocalDeployer) StopService() error {
-	return d.stopService()
-}
-
-// startService starts a service for a given release.
-func (d *LocalDeployer) startService(releaseName string) error {
-	// Check if the service is already running
-	pidPath := d.resolvePath(d.config.Service.PidFile, "")
-	if _, err := os.Stat(pidPath); err == nil {
-		content, err := os.ReadFile(pidPath)
-		if err == nil {
-			parts := strings.Split(strings.TrimSpace(string(content)), ":")
-			if len(parts) == 2 {
-				pid, err := strconv.Atoi(parts[0])
-				if err == nil {
-					process, err := os.FindProcess(pid)
-					if err == nil && process.Signal(syscall.Signal(0)) == nil {
-						return &ServiceAlreadyRunningError{PID: pid}
-					}
-				}
-			}
-		}
-		log.Println(color.Yellow(i18n.T().ServiceStalePidFile))
-		os.Remove(pidPath)
-	}
-
-	startCmd := d.config.Service.StartCommand
-	if startCmd == "" {
-		log.Println(color.Yellow("No start_command configured, skipping service start."))
-		return nil
-	}
-
-	// 1. Define paths
-	pidPath = d.resolvePath(d.config.Service.PidFile, releaseName)
-	stdoutLogPath := d.resolvePath(d.config.Service.StdoutLog, releaseName)
-
-	var stderrLogPath string
-	if d.config.Service.StderrLog != "" {
-		stderrLogPath = d.resolvePath(d.config.Service.StderrLog, releaseName)
-	}
-
-	releasePath := d.config.GetReleasePathByName(releaseName)
-	wrapperPath := filepath.Join(releasePath, "_revlay_starter.sh")
-
-	// 2. Create the wrapper script with robust redirection
-	// If a log path is empty, it defaults to /dev/null.
-	// If stderr is empty, it redirects to stdout.
-	wrapperScript := fmt.Sprintf(`#!/bin/sh
-set -e
-OUT_LOG_PATH=${1:-/dev/null}
-ERR_LOG_PATH=${2:-$OUT_LOG_PATH}
-PID_FILE=${3}
-shift 3
-USER_COMMAND="$@"
-
-echo "Starting service..."
-nohup sh -c "$USER_COMMAND" > "$OUT_LOG_PATH" 2> "$ERR_LOG_PATH" &
-PID=$!
-echo "Service starting with PID: $PID"
-echo "$PID:%d" > "$PID_FILE"
-`, time.Now().Unix())
-
-	if err := os.WriteFile(wrapperPath, []byte(wrapperScript), 0755); err != nil {
-		return fmt.Errorf("failed to create starter script: %w", err)
-	}
-
-	// 3. Execute the wrapper script
-	cmd := exec.Command(wrapperPath, stdoutLogPath, stderrLogPath, pidPath, startCmd)
-	cmd.Dir = releasePath
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to execute starter script: %w\nOutput: %s", err, string(output))
-	}
-
-	log.Printf("Service start initiated by wrapper script:\n%s", string(output))
-
-	// 4. Wait briefly and check if the process is still running
-	// This detects immediate crashes that might occur during startup
-	startupDelay := d.config.Service.StartupDelay
-	if startupDelay <= 0 {
-		startupDelay = 5 // default to 5 seconds if not configured
-	}
-	log.Printf("Waiting %d seconds to verify service startup...", startupDelay)
-	time.Sleep(time.Duration(startupDelay) * time.Second)
-
-	// Check if PID file exists and process is running
-	if _, err := os.Stat(pidPath); os.IsNotExist(err) {
-		// Check log files for error messages
-		var errorMsg string
-		// 如果 stderr_log 配置为空，stderrLogPath 也会为空，此时应该跳过检查
-		if stderrLogPath != "" && d.config.Service.StderrLog != "" {
-			if _, err := os.Stat(stderrLogPath); err == nil {
-				// Read the last few lines of the error log
-				errorContent, readErr := exec.Command("tail", "-n", "20", stderrLogPath).CombinedOutput()
-				if readErr == nil && len(errorContent) > 0 {
-					errorMsg = fmt.Sprintf("\nRecent error logs:\n%s", string(errorContent))
-				}
-			}
-		} else if stdoutLogPath != "" {
-			// 如果 stderr_log 为空但 stdout_log 不为空，尝试从 stdout_log 中读取错误信息
-			if _, err := os.Stat(stdoutLogPath); err == nil {
-				errorContent, readErr := exec.Command("tail", "-n", "20", stdoutLogPath).CombinedOutput()
-				if readErr == nil && len(errorContent) > 0 {
-					errorMsg = fmt.Sprintf("\nRecent logs:\n%s", string(errorContent))
-				}
-			}
-		}
-		return fmt.Errorf("service failed to start - PID file not found or process died immediately%s", errorMsg)
-	}
-
-	// Read PID file and verify process is running
-	content, err := os.ReadFile(pidPath)
-	if err != nil {
-		return fmt.Errorf("failed to read PID file after starting service: %w", err)
-	}
-
-	parts := strings.Split(strings.TrimSpace(string(content)), ":")
-	if len(parts) != 2 {
-		return fmt.Errorf("invalid PID file format after service start")
-	}
-
-	pid, err := strconv.Atoi(parts[0])
-	if err != nil {
-		return fmt.Errorf("invalid PID in PID file: %w", err)
-	}
-
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return fmt.Errorf("process with PID %d not found after starting service", pid)
-	}
-
-	// Check if process is still running
-	if err := process.Signal(syscall.Signal(0)); err != nil {
-		// Check log files for error messages
-		var errorMsg string
-		// 同样，在检查 stderrLogPath 之前先验证它是否为空
-		if stderrLogPath != "" && d.config.Service.StderrLog != "" {
-			if _, err := os.Stat(stderrLogPath); err == nil {
-				// Read the last few lines of the error log
-				errorContent, readErr := exec.Command("tail", "-n", "20", stderrLogPath).CombinedOutput()
-				if readErr == nil && len(errorContent) > 0 {
-					errorMsg = fmt.Sprintf("\nRecent error logs:\n%s", string(errorContent))
-				}
-			}
-		} else if stdoutLogPath != "" {
-			// 如果 stderr_log 为空但 stdout_log 不为空，尝试从 stdout_log 中读取错误信息
-			if _, err := os.Stat(stdoutLogPath); err == nil {
-				errorContent, readErr := exec.Command("tail", "-n", "20", stdoutLogPath).CombinedOutput()
-				if readErr == nil && len(errorContent) > 0 {
-					errorMsg = fmt.Sprintf("\nRecent logs:\n%s", string(errorContent))
-				}
-			}
-		}
-		return fmt.Errorf("service process died shortly after starting%s", errorMsg)
-	}
-
-	log.Printf("Service successfully started with PID: %d", pid)
-	return nil
-}
-
-// StartService starts a service for a given release (public wrapper).
-func (d *LocalDeployer) StartService(releaseName string) error {
-	return d.startService(releaseName)
-}
-
-func (d *LocalDeployer) getCurrentPortFromState() (int, error) {
-	stateFile := d.config.GetActivePortPath()
-	content, err := os.ReadFile(stateFile)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return d.config.Service.Port, nil // Default to main port if state file doesn't exist
-		}
-		return 0, err
-	}
-	return strconv.Atoi(strings.TrimSpace(string(content)))
-}
-
-func (d *LocalDeployer) writeStateFile(port int) error {
-	stateFile := d.config.GetActivePortPath()
-	if err := os.MkdirAll(filepath.Dir(stateFile), 0755); err != nil {
-		return fmt.Errorf("could not create state directory: %w", err)
-	}
-	return os.WriteFile(stateFile, []byte(strconv.Itoa(port)), 0644)
-}
-
-// stepLogger helps to print deployment steps with incremental numbers.
-type stepLogger struct {
-	step int
-}
-
-func newStepLogger() *stepLogger {
-	return &stepLogger{step: 0}
-}
-
-func (l *stepLogger) Print(message string) {
-	l.step++
-	// 将数字转换为中文步骤序号
-	var stepText string
-	stepText = fmt.Sprintf("第%s步", convertToChineseNumber(l.step))
-	fmt.Println(color.Cyan("%s: %s", stepText, message))
-}
-
-func (l *stepLogger) Warn(message string) {
-	fmt.Println(color.Yellow(message))
-}
-
-func (d *LocalDeployer) preflightChecks(releaseName string) error {
-	// Check and create necessary directories
-	paths := []string{
-		d.config.GetPidsPath(),
-		d.config.GetLogsPath(),
-	}
-	for _, path := range paths {
-		// Resolve potential template variables in paths
-		resolvedPath, err := d.resolveTemplate(path, releaseName)
-		if err != nil {
-			return fmt.Errorf("failed to resolve path template %s: %w", path, err)
-		}
-		// Ensure the directory for the file exists, not the file itself if it's a file path
-		dir := filepath.Dir(resolvedPath)
-		if _, err := os.Stat(dir); os.IsNotExist(err) {
-			fmt.Printf("  - "+i18n.T().DeployCreatingDir+"\n", dir)
-			if err := os.MkdirAll(dir, 0755); err != nil {
-				return fmt.Errorf(i18n.T().DeployDirCreationError, dir, err)
-			}
-		}
-	}
-
-	// TODO: check write permissions for PID and log files
-
-	return nil
-}
-
 func (d *LocalDeployer) resolveTemplate(template string, releaseName string) (string, error) {
+	// A simple resolver. A more advanced one could use text/template.
+	if releaseName == "" {
+		var err error
+		releaseName, err = d.GetCurrentRelease()
+		if err != nil {
+			// It might be the first deployment, so no current release exists.
+			// In this case, we can't resolve {{release}} but other templates might be fine.
+			releaseName = ""
+		}
+	}
 	template = strings.ReplaceAll(template, "{{.AppName}}", d.config.App.Name)
 	template = strings.ReplaceAll(template, "{{.ReleaseName}}", releaseName)
+	template = strings.ReplaceAll(template, "{{release}}", releaseName) // Keep for compatibility
+	template = strings.ReplaceAll(template, "{{current_path}}", d.config.GetCurrentPath())
 	template = strings.ReplaceAll(template, "{{.Date}}", time.Now().Format("2006-01-02"))
+
 	return template, nil
-}
-
-func (d *LocalDeployer) resolvePath(pathTemplate string, releaseName string) string {
-	resolved, _ := d.resolveTemplate(pathTemplate, releaseName)
-	return filepath.Join(d.config.RootPath, resolved)
-}
-
-func copyDirectory(src, dest string) error {
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(dest, 0755); err != nil {
-		return err
-	}
-
-	for _, entry := range entries {
-		srcPath := filepath.Join(src, entry.Name())
-		destPath := filepath.Join(dest, entry.Name())
-
-		fileInfo, err := os.Lstat(srcPath)
-		if err != nil {
-			return err
-		}
-
-		// Handle by file type
-		switch {
-		case fileInfo.Mode()&os.ModeSymlink != 0:
-			// Handle symlinks
-			linkTarget, err := os.Readlink(srcPath)
-			if err != nil {
-				return fmt.Errorf("failed to read symlink %s: %w", srcPath, err)
-			}
-			if err := os.Symlink(linkTarget, destPath); err != nil {
-				return fmt.Errorf("failed to create symlink %s -> %s: %w", destPath, linkTarget, err)
-			}
-		case fileInfo.IsDir():
-			// Handle directories
-			if err := copyDirectory(srcPath, destPath); err != nil {
-				return err
-			}
-		case fileInfo.Mode()&os.ModeNamedPipe != 0, fileInfo.Mode()&os.ModeSocket != 0, fileInfo.Mode()&os.ModeDevice != 0:
-			// Skip special files
-			log.Printf("Skipping special file: %s (mode: %s)", srcPath, fileInfo.Mode().String())
-		default:
-			// Regular files
-			if err := copyRegularFile(srcPath, destPath, fileInfo.Mode()); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// copyRegularFile copies a regular file from src to dest with the given mode
-func copyRegularFile(src, dest string, mode os.FileMode) error {
-	srcFile, err := os.Open(src)
-	if err != nil {
-		return fmt.Errorf("failed to open source file %s: %w", src, err)
-	}
-	defer srcFile.Close()
-
-	destFile, err := os.OpenFile(dest, os.O_RDWR|os.O_CREATE|os.O_TRUNC, mode.Perm())
-	if err != nil {
-		return fmt.Errorf("failed to create destination file %s: %w", dest, err)
-	}
-	defer destFile.Close()
-
-	if _, err = io.Copy(destFile, srcFile); err != nil {
-		return fmt.Errorf("failed to copy file content from %s to %s: %w", src, dest, err)
-	}
-
-	return nil
-}
-
-// 将数字转换为中文数字
-func convertToChineseNumber(num int) string {
-	chineseNumbers := []string{"一", "二", "三", "四", "五", "六", "七", "八", "九", "十"}
-	if num <= 0 {
-		return ""
-	} else if num <= 10 {
-		return chineseNumbers[num-1]
-	} else if num < 20 {
-		return "十" + chineseNumbers[num-11]
-	} else {
-		return fmt.Sprintf("%d", num) // 超过20的数字返回阿拉伯数字
-	}
 }
