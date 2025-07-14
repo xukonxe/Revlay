@@ -51,6 +51,14 @@ type Config struct {
 		HealthCheck string `yaml:"health_check"`
 		// Graceful shutdown timeout in seconds
 		GracefulTimeout int `yaml:"graceful_timeout"`
+		// Startup confirmation delay in seconds
+		StartupDelay int `yaml:"startup_delay"`
+		// PID file path
+		PidFile string `yaml:"pid_file"`
+		// Stdout log path
+		StdoutLog string `yaml:"stdout_log"`
+		// Stderr log path
+		StderrLog string `yaml:"stderr_log"`
 	} `yaml:"service"`
 
 	// Hooks configuration
@@ -89,6 +97,10 @@ func DefaultConfig() *Config {
 			ProxyPort       int    `yaml:"proxy_port"`
 			HealthCheck     string `yaml:"health_check"`
 			GracefulTimeout int    `yaml:"graceful_timeout"`
+			StartupDelay    int    `yaml:"startup_delay"`
+			PidFile         string `yaml:"pid_file"`
+			StdoutLog       string `yaml:"stdout_log"`
+			StderrLog       string `yaml:"stderr_log"`
 		}{
 			StartCommand:    "systemctl start myapp",
 			StopCommand:     "systemctl stop myapp",
@@ -97,6 +109,10 @@ func DefaultConfig() *Config {
 			ProxyPort:       80,
 			HealthCheck:     "/health",
 			GracefulTimeout: 30,
+			StartupDelay:    10,
+			PidFile:         "pids/{{.AppName}}.pid",
+			StdoutLog:       "logs/{{.AppName}}-output.log",
+			StderrLog:       "logs/{{.AppName}}-error.log",
 		},
 		Hooks: struct {
 			PreDeploy    []string `yaml:"pre_deploy"`
@@ -208,6 +224,16 @@ func (c *Config) GetReleasesPath() string {
 // GetSharedPath returns the path to the shared directory
 func (c *Config) GetSharedPath() string {
 	return filepath.Join(c.RootPath, "shared")
+}
+
+// GetPidsPath returns the path to the pids directory
+func (c *Config) GetPidsPath() string {
+	return filepath.Join(c.RootPath, "pids")
+}
+
+// GetLogsPath returns the path to the logs directory
+func (c *Config) GetLogsPath() string {
+	return filepath.Join(c.RootPath, "logs")
 }
 
 // GetCurrentPath returns the path to the current symlink

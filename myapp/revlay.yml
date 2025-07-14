@@ -6,19 +6,19 @@ deploy:
         NODE_ENV: production
     mode: short_downtime
 service:
-    start_command: |
-        echo "test1"
-    stop_command: |
-        echo "test2"
-    port: 8080
+    start_command: python3 test.py
+    stop_command: 
+    port: 8089
     alt_port: 8081
     proxy_port: 80
     health_check: /health
-    graceful_timeout: 30
+    graceful_timeout: 10
+    startup_delay: 3
+    pid_file: pids/{{.AppName}}.pid
+    stdout_log: logs/{{.AppName}}-output.log
+    stderr_log: logs/{{.AppName}}-error.log
 hooks:
     pre_deploy: []
-    post_deploy:
-        - echo "test3"
+    post_deploy: []
     pre_rollback: []
-    post_rollback:
-        - echo "test4"
+    post_rollback: []

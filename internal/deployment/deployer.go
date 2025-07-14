@@ -3,6 +3,7 @@ package deployment
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gofrs/flock"
 	"github.com/xukonxe/revlay/internal/color"
 	"github.com/xukonxe/revlay/internal/config"
 	"github.com/xukonxe/revlay/internal/i18n"
@@ -66,6 +68,17 @@ func (d *LocalDeployer) runLocalCommand(name string, arg ...string) (string, err
 
 // Deploy dispatches the deployment to the correct strategy based on config.
 func (d *LocalDeployer) Deploy(releaseName string, sourceDir string) error {
+	lockPath := filepath.Join(d.config.RootPath, "revlay.lock")
+	fileLock := flock.New(lockPath)
+	locked, err := fileLock.TryLock()
+	if err != nil {
+		return fmt.Errorf(i18n.T().DeployLockError, err)
+	}
+	if !locked {
+		return fmt.Errorf(i18n.T().DeployAlreadyInProgress)
+	}
+	defer fileLock.Unlock()
+
 	switch d.config.Deploy.Mode {
 	case config.ZeroDowntimeMode:
 		return d.deployZeroDowntime(releaseName, sourceDir)
@@ -79,9 +92,16 @@ func (d *LocalDeployer) Deploy(releaseName string, sourceDir string) error {
 
 func (d *LocalDeployer) deployShortDowntime(releaseName string, sourceDir string) error {
 	fmt.Println(color.Cyan(i18n.T().DeployExecShortDowntime))
+	log := newStepLogger()
 
-	// Step 1: Setup directories
-	fmt.Println(color.Cyan(i18n.T().DeployStep, 1, i18n.T().DeploySetupDirs))
+	// Step 1: Pre-flight checks
+	log.Print(i18n.T().DeployPreflightChecks)
+	if err := d.preflightChecks(releaseName); err != nil {
+		return err
+	}
+
+	// Step 2: Setup directories
+	log.Print(i18n.T().DeploySetupDirs)
 	if err := d.setupDirectoriesAndRelease(releaseName, sourceDir); err != nil {
 		return err
 	}
@@ -89,38 +109,32 @@ func (d *LocalDeployer) deployShortDowntime(releaseName string, sourceDir string
 		return err
 	}
 
-	// Step 2: Stop the current service
-	fmt.Println(color.Cyan(i18n.T().DeployStep, 2, "Stopping current service..."))
-	if d.config.Service.StopCommand != "" {
-		env := map[string]string{"PORT": fmt.Sprintf("%d", d.config.Service.Port)}
-		if _, err := d.runCommandSync(releaseName, d.config.Service.StopCommand, env); err != nil {
-			log.Print(color.Yellow(fmt.Sprintf("Warning: failed to run stop command: %v.", err)))
-		}
+	// Step 3: Stop the current service
+	log.Print(i18n.T().DeployStoppingService)
+	if err := d.stopService(); err != nil {
+		log.Warn(fmt.Sprintf(i18n.T().DeployStopServiceFailed, err))
 	}
 
-	// Step 3: Activate new release
-	fmt.Println(color.Cyan(i18n.T().DeployStep, 3, i18n.T().DeployActivating))
+	// Step 4: Activate new release
+	log.Print(i18n.T().DeployActivating)
 	if err := d.switchSymlink(releaseName); err != nil {
 		return err
 	}
 
-	// Step 4: Start the new service
-	fmt.Println(color.Cyan(i18n.T().DeployStep, 4, "Starting new service..."))
-	if d.config.Service.StartCommand != "" {
-		env := map[string]string{"PORT": fmt.Sprintf("%d", d.config.Service.Port)}
-		if _, err := d.runCommandAsync(releaseName, d.config.Service.StartCommand, env); err != nil {
-			return fmt.Errorf("failed to run start command: %w", err)
-		}
+	// Step 5: Start the new service
+	log.Print(i18n.T().DeployStartingService)
+	if err := d.startService(releaseName); err != nil {
+		return fmt.Errorf(i18n.T().DeployStartServiceFailed, err)
 	}
 
-	// Step 5: Perform health check
-	fmt.Println(color.Cyan(i18n.T().DeployStep, 5, i18n.T().DeployHealthCheck))
+	// Step 6: Perform health check
+	log.Print(i18n.T().DeployHealthCheck)
 	if err := d.performHealthCheck(d.config.Service.Port); err != nil {
 		return err
 	}
 
-	// Step 6: Prune old releases
-	fmt.Println(color.Cyan(i18n.T().DeployStep, 6, i18n.T().DeployPruning))
+	// Step 7: Prune old releases
+	log.Print(i18n.T().DeployPruning)
 	return d.Prune()
 }
 
@@ -220,7 +234,8 @@ func (d *LocalDeployer) deployZeroDowntime(releaseName string, sourceDir string)
 	if gracePeriod > 0 {
 		time.Sleep(gracePeriod)
 	}
-	d.stopService(releaseName, oldPort)
+	// TODO: refactor stopService for zero-downtime
+	// if err := d.stopServiceByPort(oldPort); err != nil { ... }
 
 	// Step 8: Prune old releases
 	fmt.Println(color.Cyan(i18n.T().DeployStep, 8, i18n.T().DeployPruning))
@@ -362,6 +377,8 @@ func (d *LocalDeployer) setupDirectories() error {
 	paths := []string{
 		d.config.GetReleasesPath(),
 		d.config.GetSharedPath(),
+		d.config.GetPidsPath(),
+		d.config.GetLogsPath(),
 	}
 	for _, path := range paths {
 		fmt.Printf(i18n.T().DeployEnsuringDir+"\n", path)
@@ -373,7 +390,6 @@ func (d *LocalDeployer) setupDirectories() error {
 }
 
 func (d *LocalDeployer) setupDirectoriesAndRelease(releaseName string, sourceDir string) error {
-	fmt.Println(color.Cyan(i18n.T().DeploySetupDirs))
 	if err := d.setupDirectories(); err != nil {
 		return err
 	}
@@ -381,14 +397,10 @@ func (d *LocalDeployer) setupDirectoriesAndRelease(releaseName string, sourceDir
 	fmt.Println(color.Cyan(i18n.T().DeployPopulatingDir))
 	releasePath := d.config.GetReleasePathByName(releaseName)
 	if sourceDir != "" {
-		fmt.Printf(i18n.T().DeployMovingContent+"\n", sourceDir)
-		if err := os.Rename(sourceDir, releasePath); err != nil {
-			fmt.Println(color.Yellow(i18n.T().DeployRenameFailed))
-			if _, err := d.runLocalCommand("cp", "-r", sourceDir, releasePath); err != nil {
-				return fmt.Errorf("failed to copy from source directory %s: %w", sourceDir, err)
-			}
+		fmt.Printf(i18n.T().DeployCopyingContent+"\n", sourceDir)
+		if err := copyDirectory(sourceDir, releasePath); err != nil {
+			return fmt.Errorf("failed to copy from source directory %s: %w", sourceDir, err)
 		}
-
 	} else {
 		if err := os.MkdirAll(releasePath, 0755); err != nil {
 			return fmt.Errorf("failed to create release directory %s: %w", releasePath, err)
@@ -449,10 +461,8 @@ func GenerateReleaseTimestamp() string {
 
 func (d *LocalDeployer) runHooks(hooks []string, hookType string) error {
 	if len(hooks) > 0 {
-		// No need to print this sub-step, the main steps are enough
-		// fmt.Print(color.Cyan(fmt.Sprintf("Running %s hooks...\n", hookType)))
 		for _, hook := range hooks {
-			if _, err := d.runLocalCommand("sh", "-c", hook); err != nil {
+			if _, err := d.runCommandSyncWithStreaming("sh", "-c", hook); err != nil {
 				return err
 			}
 		}
@@ -470,61 +480,34 @@ func (d *LocalDeployer) performHealthCheck(port int) error {
 	return nil
 }
 
-func (d *LocalDeployer) runCommandSync(releaseName, command string, env map[string]string) (string, error) {
-	finalCommand := command
-	if port, ok := env["PORT"]; ok {
-		finalCommand = strings.ReplaceAll(command, "${PORT}", port)
-	}
+func (d *LocalDeployer) runCommandSyncWithStreaming(name string, arg ...string) (string, error) {
+	fmt.Println(color.Cyan("  -> Executing: %s %s", name, strings.Join(arg, " ")))
+	cmd := exec.Command(name, arg...)
+	cmd.Dir = d.config.RootPath
 
-	fullCommand := "sh"
-	args := []string{"-c", finalCommand}
-
-	fmt.Println(color.Cyan("  -> Executing: %s %s", fullCommand, strings.Join(args, " ")))
-	cmd := exec.Command(fullCommand, args...)
-	cmd.Dir = d.config.GetReleasePathByName(releaseName)
-
-	cmd.Env = os.Environ()
-	for k, v := range d.config.Deploy.Environment {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
-	}
-	for k, v := range env {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
-	}
-
-	output, err := cmd.CombinedOutput()
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return "", fmt.Errorf(i18n.T().DeployCmdExecFailed, err, output)
+		return "", err
 	}
-	return string(output), nil
-}
-
-func (d *LocalDeployer) runCommandAsync(releaseName, command string, env map[string]string) (*exec.Cmd, error) {
-	finalCommand := command
-	if port, ok := env["PORT"]; ok {
-		finalCommand = strings.ReplaceAll(command, "${PORT}", port)
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return "", err
 	}
-	fullCommand := "sh"
-	args := []string{"-c", finalCommand}
-	fmt.Println(color.Cyan("  -> Executing: %s %s", fullCommand, strings.Join(args, " ")))
-	cmd := exec.Command(fullCommand, args...)
-	cmd.Dir = d.config.GetReleasePathByName(releaseName)
-	cmd.Env = os.Environ()
-	for k, v := range d.config.Deploy.Environment {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
-	}
-	for k, v := range env {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
-	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start command: %w", err)
+		return "", err
 	}
-	// Detach the process from the deployer
-	if err := cmd.Process.Release(); err != nil {
-		log.Printf("Warning: failed to release process: %v", err)
+
+	scanner := bufio.NewScanner(io.MultiReader(stdout, stderr))
+	for scanner.Scan() {
+		fmt.Printf("    %s\n", scanner.Text())
 	}
-	return cmd, nil
+
+	if err := cmd.Wait(); err != nil {
+		return "", err
+	}
+
+	return "", nil
 }
 
 func (d *LocalDeployer) runCommandAttachedAsyncWithStreaming(releaseName, command string, env map[string]string) (*exec.Cmd, <-chan error, error) {
@@ -583,15 +566,176 @@ func (d *LocalDeployer) runCommandAttachedAsyncWithStreaming(releaseName, comman
 	return cmd, done, nil
 }
 
-func (d *LocalDeployer) stopService(releaseName string, port int) {
-	if d.config.Service.StopCommand != "" {
-		// No need to print this sub-step, the main steps are enough
-		// fmt.Print(color.Cyan(fmt.Sprintf("Stopping service on port %d...\n", port)))
-		env := map[string]string{"PORT": fmt.Sprintf("%d", port)}
-		if _, err := d.runCommandSync(releaseName, d.config.Service.StopCommand, env); err != nil {
-			log.Print(color.Yellow(fmt.Sprintf("Warning: failed to stop service on port %d: %v", port, err)))
-		}
+func (d *LocalDeployer) stopService() error {
+	pidPath := d.resolvePath(d.config.Service.PidFile, "")
+	if _, err := os.Stat(pidPath); os.IsNotExist(err) {
+		return nil
 	}
+
+	content, err := os.ReadFile(pidPath)
+	if err != nil {
+		return fmt.Errorf("failed to read pid file: %w", err)
+	}
+
+	parts := strings.Split(strings.TrimSpace(string(content)), ":")
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid pid file format in %s", pidPath)
+	}
+
+	pid, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return fmt.Errorf("invalid pid in pid file: %w", err)
+	}
+
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		os.Remove(pidPath)
+		return nil
+	}
+
+	if err := process.Signal(syscall.Signal(0)); err != nil {
+		log.Printf("Process with PID %d not found, cleaning up stale PID file.", pid)
+		os.Remove(pidPath)
+		return nil
+	}
+
+	log.Printf("Requesting graceful shutdown for process with PID %d...", pid)
+	if err := process.Signal(syscall.SIGTERM); err != nil {
+		return fmt.Errorf("failed to send SIGTERM to process %d: %w", pid, err)
+	}
+
+	timeout := time.Duration(d.config.Service.GracefulTimeout) * time.Second
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for time.Now().Before(deadline) {
+		<-ticker.C
+		if err := process.Signal(syscall.Signal(0)); err != nil {
+			log.Println(color.Green("  -> Service stopped gracefully."))
+			os.Remove(pidPath)
+			return nil
+		}
+		log.Printf("  -> Waiting for service to stop... (%v remaining)", time.Until(deadline).Round(time.Second))
+	}
+
+	log.Println(color.Yellow("Service did not stop gracefully within the timeout. Forcing shutdown..."))
+	if err := process.Signal(syscall.SIGKILL); err != nil {
+		return fmt.Errorf("failed to send SIGKILL to process %d: %w", pid, err)
+	}
+	os.Remove(pidPath)
+	log.Println(color.Red("  -> Service forced to stop."))
+
+	return nil
+}
+
+func (d *LocalDeployer) startService(releaseName string) error {
+	startCmd := d.config.Service.StartCommand
+	if startCmd == "" {
+		log.Println(color.Yellow("No start_command configured, skipping service start."))
+		return nil
+	}
+
+	// 1. Define paths
+	pidPath := d.resolvePath(d.config.Service.PidFile, releaseName)
+	stdoutLogPath := d.resolvePath(d.config.Service.StdoutLog, releaseName)
+	stderrLogPath := d.resolvePath(d.config.Service.StderrLog, releaseName)
+	releasePath := d.config.GetReleasePathByName(releaseName)
+	wrapperPath := filepath.Join(releasePath, "_revlay_starter.sh")
+
+	// 2. Create the wrapper script with robust redirection
+	// If a log path is empty, it defaults to /dev/null.
+	// If stderr is empty, it redirects to stdout.
+	wrapperScript := fmt.Sprintf(`#!/bin/sh
+set -e
+OUT_LOG_PATH=${1:-/dev/null}
+ERR_LOG_PATH=${2:-$OUT_LOG_PATH}
+PID_FILE=${3}
+shift 3
+USER_COMMAND="$@"
+
+echo "Starting service..."
+nohup sh -c "$USER_COMMAND" > "$OUT_LOG_PATH" 2> "$ERR_LOG_PATH" &
+PID=$!
+echo "Service starting with PID: $PID"
+echo "$PID:%d" > "$PID_FILE"
+`, time.Now().Unix())
+
+	if err := os.WriteFile(wrapperPath, []byte(wrapperScript), 0755); err != nil {
+		return fmt.Errorf("failed to create starter script: %w", err)
+	}
+
+	// 3. Execute the wrapper script
+	cmd := exec.Command(wrapperPath, stdoutLogPath, stderrLogPath, pidPath, startCmd)
+	cmd.Dir = releasePath
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to execute starter script: %w\nOutput: %s", err, string(output))
+	}
+
+	log.Printf("Service start initiated by wrapper script:\n%s", string(output))
+
+	// 4. Wait briefly and check if the process is still running
+	// This detects immediate crashes that might occur during startup
+	startupDelay := d.config.Service.StartupDelay
+	if startupDelay <= 0 {
+		startupDelay = 5 // default to 5 seconds if not configured
+	}
+	log.Printf("Waiting %d seconds to verify service startup...", startupDelay)
+	time.Sleep(time.Duration(startupDelay) * time.Second)
+
+	// Check if PID file exists and process is running
+	if _, err := os.Stat(pidPath); os.IsNotExist(err) {
+		// Check log files for error messages
+		var errorMsg string
+		if _, err := os.Stat(stderrLogPath); err == nil {
+			// Read the last few lines of the error log
+			errorContent, readErr := exec.Command("tail", "-n", "20", stderrLogPath).CombinedOutput()
+			if readErr == nil && len(errorContent) > 0 {
+				errorMsg = fmt.Sprintf("\nRecent error logs:\n%s", string(errorContent))
+			}
+		}
+		return fmt.Errorf("service failed to start - PID file not found or process died immediately%s", errorMsg)
+	}
+
+	// Read PID file and verify process is running
+	content, err := os.ReadFile(pidPath)
+	if err != nil {
+		return fmt.Errorf("failed to read PID file after starting service: %w", err)
+	}
+
+	parts := strings.Split(strings.TrimSpace(string(content)), ":")
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid PID file format after service start")
+	}
+
+	pid, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return fmt.Errorf("invalid PID in PID file: %w", err)
+	}
+
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return fmt.Errorf("process with PID %d not found after starting service", pid)
+	}
+
+	// Check if process is still running
+	if err := process.Signal(syscall.Signal(0)); err != nil {
+		// Check log files for error messages
+		var errorMsg string
+		if _, err := os.Stat(stderrLogPath); err == nil {
+			// Read the last few lines of the error log
+			errorContent, readErr := exec.Command("tail", "-n", "20", stderrLogPath).CombinedOutput()
+			if readErr == nil && len(errorContent) > 0 {
+				errorMsg = fmt.Sprintf("\nRecent error logs:\n%s", string(errorContent))
+			}
+		}
+		return fmt.Errorf("service process died shortly after starting%s", errorMsg)
+	}
+
+	log.Printf("Service successfully started with PID: %d", pid)
+	return nil
 }
 
 func (d *LocalDeployer) getCurrentPortFromState() (int, error) {
@@ -612,4 +756,129 @@ func (d *LocalDeployer) writeStateFile(port int) error {
 		return fmt.Errorf("could not create state directory: %w", err)
 	}
 	return os.WriteFile(stateFile, []byte(strconv.Itoa(port)), 0644)
+}
+
+// stepLogger helps to print deployment steps with incremental numbers.
+type stepLogger struct {
+	step int
+}
+
+func newStepLogger() *stepLogger {
+	return &stepLogger{step: 0}
+}
+
+func (l *stepLogger) Print(message string) {
+	l.step++
+	fmt.Println(color.Cyan(i18n.Sprintf(i18n.T().DeployStep, l.step, message)))
+}
+
+func (l *stepLogger) Warn(message string) {
+	fmt.Println(color.Yellow(message))
+}
+
+func (d *LocalDeployer) preflightChecks(releaseName string) error {
+	// Check and create necessary directories
+	paths := []string{
+		d.config.GetPidsPath(),
+		d.config.GetLogsPath(),
+	}
+	for _, path := range paths {
+		// Resolve potential template variables in paths
+		resolvedPath, err := d.resolveTemplate(path, releaseName)
+		if err != nil {
+			return fmt.Errorf("failed to resolve path template %s: %w", path, err)
+		}
+		// Ensure the directory for the file exists, not the file itself if it's a file path
+		dir := filepath.Dir(resolvedPath)
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			fmt.Printf("  - "+i18n.T().DeployCreatingDir+"\n", dir)
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return fmt.Errorf(i18n.T().DeployDirCreationError, dir, err)
+			}
+		}
+	}
+
+	// TODO: check write permissions for PID and log files
+
+	return nil
+}
+
+func (d *LocalDeployer) resolveTemplate(template string, releaseName string) (string, error) {
+	template = strings.ReplaceAll(template, "{{.AppName}}", d.config.App.Name)
+	template = strings.ReplaceAll(template, "{{.ReleaseName}}", releaseName)
+	template = strings.ReplaceAll(template, "{{.Date}}", time.Now().Format("2006-01-02"))
+	return template, nil
+}
+
+func (d *LocalDeployer) resolvePath(pathTemplate string, releaseName string) string {
+	resolved, _ := d.resolveTemplate(pathTemplate, releaseName)
+	return filepath.Join(d.config.RootPath, resolved)
+}
+
+func copyDirectory(src, dest string) error {
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dest, 0755); err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		destPath := filepath.Join(dest, entry.Name())
+
+		fileInfo, err := os.Lstat(srcPath)
+		if err != nil {
+			return err
+		}
+
+		// Handle by file type
+		switch {
+		case fileInfo.Mode()&os.ModeSymlink != 0:
+			// Handle symlinks
+			linkTarget, err := os.Readlink(srcPath)
+			if err != nil {
+				return fmt.Errorf("failed to read symlink %s: %w", srcPath, err)
+			}
+			if err := os.Symlink(linkTarget, destPath); err != nil {
+				return fmt.Errorf("failed to create symlink %s -> %s: %w", destPath, linkTarget, err)
+			}
+		case fileInfo.IsDir():
+			// Handle directories
+			if err := copyDirectory(srcPath, destPath); err != nil {
+				return err
+			}
+		case fileInfo.Mode()&os.ModeNamedPipe != 0, fileInfo.Mode()&os.ModeSocket != 0, fileInfo.Mode()&os.ModeDevice != 0:
+			// Skip special files
+			log.Printf("Skipping special file: %s (mode: %s)", srcPath, fileInfo.Mode().String())
+		default:
+			// Regular files
+			if err := copyRegularFile(srcPath, destPath, fileInfo.Mode()); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// copyRegularFile copies a regular file from src to dest with the given mode
+func copyRegularFile(src, dest string, mode os.FileMode) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("failed to open source file %s: %w", src, err)
+	}
+	defer srcFile.Close()
+
+	destFile, err := os.OpenFile(dest, os.O_RDWR|os.O_CREATE|os.O_TRUNC, mode.Perm())
+	if err != nil {
+		return fmt.Errorf("failed to create destination file %s: %w", dest, err)
+	}
+	defer destFile.Close()
+
+	if _, err = io.Copy(destFile, srcFile); err != nil {
+		return fmt.Errorf("failed to copy file content from %s to %s: %w", src, dest, err)
+	}
+
+	return nil
 }

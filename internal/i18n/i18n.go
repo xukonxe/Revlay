@@ -96,9 +96,15 @@ type Messages struct {
 	PushComplete         string
 
 	// Deployment Steps
+	DeployPreflightChecks             string
+	DeployLockError                   string
+	DeployAlreadyInProgress           string
+	DeployCreatingDir                 string
+	DeployDirCreationError            string
 	DeploySetupDirs                   string
 	DeployEnsuringDir                 string
 	DeployPopulatingDir               string
+	DeployCopyingContent              string
 	DeployMovingContent               string
 	DeployRenameFailed                string
 	DeployCreatedEmpty                string
@@ -108,6 +114,10 @@ type Messages struct {
 	DeployPreHooks                    string
 	DeployActivating                  string
 	DeployPointingSymlink             string
+	DeployStoppingService             string
+	DeployStopServiceFailed           string
+	DeployStartingService             string
+	DeployStartServiceFailed          string
 	DeployRestartingService           string
 	DeployHealthCheck                 string
 	DeployHealthAttempt               string
@@ -269,9 +279,15 @@ var chineseMessages = Messages{
 	PushComplete:         "\n🎉 推送和部署成功完成！",
 
 	// Deployment Steps
-	DeploySetupDirs:                   "步骤 1: 设置目录...",
+	DeployPreflightChecks:             "执行预检...",
+	DeployLockError:                   "获取部署锁失败：%v",
+	DeployAlreadyInProgress:           "另一个部署似乎已在进行中 (锁定文件存在)。如果这不是真的，请手动移除 'revlay.lock' 文件。",
+	DeployCreatingDir:                 "  - 正在创建目录: %s",
+	DeployDirCreationError:            "无法创建目录 %s: %v",
+	DeploySetupDirs:                   "设置目录...",
 	DeployEnsuringDir:                 "  - 确保目录存在: %s",
-	DeployPopulatingDir:               "步骤 2: 填充版本目录...",
+	DeployPopulatingDir:               "填充版本目录...",
+	DeployCopyingContent:              "  - 从 %s 复制内容",
 	DeployMovingContent:               "  - 从 %s 移动内容",
 	DeployRenameFailed:                "  - 重命名失败，改为复制...",
 	DeployCreatedEmpty:                "  - 已创建空版本目录: %s",
@@ -281,6 +297,10 @@ var chineseMessages = Messages{
 	DeployPreHooks:                    "步骤 4: 运行部署前钩子...",
 	DeployActivating:                  "⑤ 激活新版本...",
 	DeployPointingSymlink:             "  - 将'current'符号链接指向: %s",
+	DeployStoppingService:             "停止当前服务...",
+	DeployStopServiceFailed:           "警告：停止旧服务失败：%v。可能没有服务在运行。",
+	DeployStartingService:             "启动新服务...",
+	DeployStartServiceFailed:          "启动新服务失败：%v",
 	DeployRestartingService:           "⑥ 重启服务...",
 	DeployHealthCheck:                 "⑦ 执行健康检查...",
 	DeployHealthAttempt:               "  - 健康检查尝试 #%d 对 %s...",
@@ -435,9 +455,15 @@ var englishMessages = Messages{
 	PushComplete:         "\n🎉 Push and deploy completed successfully!",
 
 	// Deployment Steps
-	DeploySetupDirs:                   "Step 1: Setting up directories...",
+	DeployPreflightChecks:             "Running pre-flight checks...",
+	DeployLockError:                   "Failed to acquire deployment lock: %v",
+	DeployAlreadyInProgress:           "Another deployment appears to be in progress (lock file exists). If this is not true, please remove 'revlay.lock' manually.",
+	DeployCreatingDir:                 "  - Creating directory: %s",
+	DeployDirCreationError:            "Failed to create directory %s: %v",
+	DeploySetupDirs:                   "Setting up directories...",
 	DeployEnsuringDir:                 "  - Ensuring directory exists: %s",
-	DeployPopulatingDir:               "Step 2: Populating release directory...",
+	DeployPopulatingDir:               "Populating release directory...",
+	DeployCopyingContent:              "  - Copying content from %s",
 	DeployMovingContent:               "  - Moving content from %s",
 	DeployRenameFailed:                "  - Rename failed, falling back to copy...",
 	DeployCreatedEmpty:                "  - Created empty release directory: %s",
@@ -447,6 +473,10 @@ var englishMessages = Messages{
 	DeployPreHooks:                    "Step 4: Running pre-deploy hooks...",
 	DeployActivating:                  "Step 5: Activating new release...",
 	DeployPointingSymlink:             "  - Pointing 'current' symlink to: %s",
+	DeployStoppingService:             "Stopping current service...",
+	DeployStopServiceFailed:           "Warning: failed to stop old service: %v. It may not have been running.",
+	DeployStartingService:             "Starting new service...",
+	DeployStartServiceFailed:          "Failed to start new service: %v",
 	DeployRestartingService:           "Step 6: Restarting service...",
 	DeployHealthCheck:                 "Step 7: Performing health check...",
 	DeployHealthAttempt:               "  - Health check attempt #%d to %s...",
