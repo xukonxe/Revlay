@@ -21,18 +21,56 @@ func NewDeployCommand() *cobra.Command {
 
 	cmd.Flags().BoolP("dry-run", "d", false, i18n.T().DeployDryRunFlag)
 	cmd.Flags().String("from-dir", "", i18n.T().DeployFromDirFlag)
+	cmd.Flags().StringP("app", "a", "", "指定要部署的服务 ID（从全局服务列表中）")
 
 	return cmd
 }
 
 func runDeploy(cmd *cobra.Command, args []string) error {
-	cfgFile, _ := cmd.Flags().GetString("config")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 	fromDir, _ := cmd.Flags().GetString("from-dir")
+
+	// 处理 --app 参数
+	cfgFile, err := resolveAppConfig(cmd)
+	if err != nil {
+		return err
+	}
 
 	cfg, err := loadConfig(cfgFile)
 	if err != nil {
 		return err
+	}
+
+	// 当用户在项目目录中直接运行 `revlay deploy` 时，
+	// 自动检查并添加服务到全局列表（如果尚未添加）
+	appID, _ := cmd.Flags().GetString("app")
+	if appID == "" {
+		allServices, err := config.ListServices()
+		if err != nil {
+			// 此处不返回错误，仅打印警告，因为这不应阻塞核心的部署功能
+			fmt.Println(color.Yellow("警告: 无法检查全局服务列表: %v", err))
+		} else {
+			isRegistered := false
+			for _, service := range allServices {
+				// 通过比较根目录来判断服务是否已注册
+				if service.Root == cfg.RootPath {
+					isRegistered = true
+					break
+				}
+			}
+
+			if !isRegistered {
+				appName := cfg.App.Name
+				fmt.Printf("服务 '%s' 尚未在全局列表中注册，正在尝试自动添加...\n", appName)
+				// 使用应用的名称作为全局唯一的 ID
+				if err := config.AddService(appName, appName, cfg.RootPath); err != nil {
+					fmt.Println(color.Yellow("警告: 自动添加服务失败: %v", err))
+					fmt.Println(color.Yellow("你可以稍后手动添加，例如: revlay service add %s .", appName))
+				} else {
+					fmt.Println(color.Green("服务 '%s' 已成功添加到全局列表。", appName))
+				}
+			}
+		}
 	}
 
 	var releaseName string

@@ -94,6 +94,14 @@ func (d *LocalDeployer) deployShortDowntime(releaseName string, sourceDir string
 	fmt.Println(color.Cyan(i18n.T().DeployExecShortDowntime))
 	log := newStepLogger()
 
+	// 在更改任何内容之前，获取当前版本以便潜在的回滚
+	previousReleaseName, err := d.GetCurrentRelease()
+	if err != nil {
+		// 记录警告但继续，因为这可能是第一次部署
+		log.Warn(fmt.Sprintf("无法确定当前版本用于回滚: %v", err))
+		previousReleaseName = ""
+	}
+
 	// Step 1: Pre-flight checks
 	log.Print(i18n.T().DeployPreflightChecks)
 	if err := d.preflightChecks(releaseName); err != nil {
@@ -118,19 +126,51 @@ func (d *LocalDeployer) deployShortDowntime(releaseName string, sourceDir string
 	// Step 4: Activate new release
 	log.Print(i18n.T().DeployActivating)
 	if err := d.switchSymlink(releaseName); err != nil {
+		// 如果切换符号链接失败，旧服务已经停止。
+		// 我们应该尝试重新启动旧服务。
+		if previousReleaseName != "" {
+			log.Warn("切换符号链接失败，尝试重新启动之前的版本。")
+			d.startService(previousReleaseName) // 尽力重启
+		}
 		return err
 	}
 
-	// Step 5: Start the new service
-	log.Print(i18n.T().DeployStartingService)
-	if err := d.startService(releaseName); err != nil {
-		return fmt.Errorf(i18n.T().DeployStartServiceFailed, err)
-	}
+	// 步骤 5 和 6：启动新服务并执行健康检查
+	startAndCheckError := func() error {
+		log.Print(i18n.T().DeployStartingService)
+		if err := d.startService(releaseName); err != nil {
+			return fmt.Errorf(i18n.T().DeployStartServiceFailed, err)
+		}
+		log.Print(i18n.T().DeployHealthCheck)
+		if err := d.performHealthCheck(d.config.Service.Port); err != nil {
+			// 回滚前停止失败的服务
+			d.stopService()
+			return err
+		}
+		return nil
+	}()
 
-	// Step 6: Perform health check
-	log.Print(i18n.T().DeployHealthCheck)
-	if err := d.performHealthCheck(d.config.Service.Port); err != nil {
-		return err
+	if startAndCheckError != nil {
+		log.Warn(fmt.Sprintf("部署失败: %v", startAndCheckError))
+
+		if previousReleaseName == "" {
+			return fmt.Errorf("部署失败，且没有可回滚的先前版本。服务已停止")
+		}
+
+		fmt.Println(color.Yellow(fmt.Sprintf("尝试回滚到先前版本: %s", previousReleaseName)))
+
+		// 回滚步骤 1：将符号链接指回旧版本
+		if err := d.switchSymlink(previousReleaseName); err != nil {
+			return fmt.Errorf("严重错误: 部署失败，随后的回滚在切换符号链接时也失败。服务可能已停止。错误: %w", err)
+		}
+
+		// 回滚步骤 2：重新启动旧服务
+		if err := d.startService(previousReleaseName); err != nil {
+			return fmt.Errorf("严重错误: 部署失败，随后的回滚在重新启动旧服务时也失败。服务可能已停止。错误: %w", err)
+		}
+
+		fmt.Println(color.Green(fmt.Sprintf("成功回滚到版本 %s。", previousReleaseName)))
+		return fmt.Errorf("'%s' 的部署失败，但成功回滚到 '%s'", releaseName, previousReleaseName)
 	}
 
 	// Step 7: Prune old releases
@@ -349,9 +389,23 @@ func (d *LocalDeployer) GetCurrentRelease() (string, error) {
 }
 
 func (d *LocalDeployer) waitForService(port int) error {
-	maxRetries := 15 // Default retries
+	maxRetries := d.config.Service.HealthCheckRetries
+	if maxRetries <= 0 {
+		maxRetries = 15 // 默认重试次数
+	}
+
+	timeout := d.config.Service.HealthCheckTimeout
+	if timeout <= 0 {
+		timeout = 5 // 默认超时时间（秒）
+	}
+
+	interval := d.config.Service.HealthCheckInterval
+	if interval <= 0 {
+		interval = 2 // 默认间隔时间（秒）
+	}
+
 	client := http.Client{
-		Timeout: 5 * time.Second,
+		Timeout: time.Duration(timeout) * time.Second,
 	}
 	healthCheckURL := fmt.Sprintf("http://localhost:%d%s", port, d.config.Service.HealthCheck)
 
@@ -367,7 +421,7 @@ func (d *LocalDeployer) waitForService(port int) error {
 			resp.Body.Close()
 		}
 		fmt.Println(color.Red(" ✗"))
-		time.Sleep(2 * time.Second) // wait before next retry
+		time.Sleep(time.Duration(interval) * time.Second) // 使用配置的间隔时间
 	}
 
 	return fmt.Errorf("service not responding at %s after %d attempts", healthCheckURL, maxRetries)
@@ -639,7 +693,12 @@ func (d *LocalDeployer) startService(releaseName string) error {
 	// 1. Define paths
 	pidPath := d.resolvePath(d.config.Service.PidFile, releaseName)
 	stdoutLogPath := d.resolvePath(d.config.Service.StdoutLog, releaseName)
-	stderrLogPath := d.resolvePath(d.config.Service.StderrLog, releaseName)
+
+	var stderrLogPath string
+	if d.config.Service.StderrLog != "" {
+		stderrLogPath = d.resolvePath(d.config.Service.StderrLog, releaseName)
+	}
+
 	releasePath := d.config.GetReleasePathByName(releaseName)
 	wrapperPath := filepath.Join(releasePath, "_revlay_starter.sh")
 
@@ -689,11 +748,22 @@ echo "$PID:%d" > "$PID_FILE"
 	if _, err := os.Stat(pidPath); os.IsNotExist(err) {
 		// Check log files for error messages
 		var errorMsg string
-		if _, err := os.Stat(stderrLogPath); err == nil {
-			// Read the last few lines of the error log
-			errorContent, readErr := exec.Command("tail", "-n", "20", stderrLogPath).CombinedOutput()
-			if readErr == nil && len(errorContent) > 0 {
-				errorMsg = fmt.Sprintf("\nRecent error logs:\n%s", string(errorContent))
+		// 如果 stderr_log 配置为空，stderrLogPath 也会为空，此时应该跳过检查
+		if stderrLogPath != "" && d.config.Service.StderrLog != "" {
+			if _, err := os.Stat(stderrLogPath); err == nil {
+				// Read the last few lines of the error log
+				errorContent, readErr := exec.Command("tail", "-n", "20", stderrLogPath).CombinedOutput()
+				if readErr == nil && len(errorContent) > 0 {
+					errorMsg = fmt.Sprintf("\nRecent error logs:\n%s", string(errorContent))
+				}
+			}
+		} else if stdoutLogPath != "" {
+			// 如果 stderr_log 为空但 stdout_log 不为空，尝试从 stdout_log 中读取错误信息
+			if _, err := os.Stat(stdoutLogPath); err == nil {
+				errorContent, readErr := exec.Command("tail", "-n", "20", stdoutLogPath).CombinedOutput()
+				if readErr == nil && len(errorContent) > 0 {
+					errorMsg = fmt.Sprintf("\nRecent logs:\n%s", string(errorContent))
+				}
 			}
 		}
 		return fmt.Errorf("service failed to start - PID file not found or process died immediately%s", errorMsg)
@@ -724,11 +794,22 @@ echo "$PID:%d" > "$PID_FILE"
 	if err := process.Signal(syscall.Signal(0)); err != nil {
 		// Check log files for error messages
 		var errorMsg string
-		if _, err := os.Stat(stderrLogPath); err == nil {
-			// Read the last few lines of the error log
-			errorContent, readErr := exec.Command("tail", "-n", "20", stderrLogPath).CombinedOutput()
-			if readErr == nil && len(errorContent) > 0 {
-				errorMsg = fmt.Sprintf("\nRecent error logs:\n%s", string(errorContent))
+		// 同样，在检查 stderrLogPath 之前先验证它是否为空
+		if stderrLogPath != "" && d.config.Service.StderrLog != "" {
+			if _, err := os.Stat(stderrLogPath); err == nil {
+				// Read the last few lines of the error log
+				errorContent, readErr := exec.Command("tail", "-n", "20", stderrLogPath).CombinedOutput()
+				if readErr == nil && len(errorContent) > 0 {
+					errorMsg = fmt.Sprintf("\nRecent error logs:\n%s", string(errorContent))
+				}
+			}
+		} else if stdoutLogPath != "" {
+			// 如果 stderr_log 为空但 stdout_log 不为空，尝试从 stdout_log 中读取错误信息
+			if _, err := os.Stat(stdoutLogPath); err == nil {
+				errorContent, readErr := exec.Command("tail", "-n", "20", stdoutLogPath).CombinedOutput()
+				if readErr == nil && len(errorContent) > 0 {
+					errorMsg = fmt.Sprintf("\nRecent logs:\n%s", string(errorContent))
+				}
 			}
 		}
 		return fmt.Errorf("service process died shortly after starting%s", errorMsg)

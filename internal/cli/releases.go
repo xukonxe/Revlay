@@ -17,11 +17,17 @@ func NewReleasesCommand() *cobra.Command {
 		Long:  i18n.T().ReleasesLongDesc,
 		RunE:  runReleases,
 	}
+	cmd.Flags().StringP("app", "a", "", "指定要查看的服务 ID（从全局服务列表中）")
 	return cmd
 }
 
 func runReleases(cmd *cobra.Command, args []string) error {
-	cfgFile, _ := cmd.Flags().GetString("config")
+	// 处理 --app 参数
+	cfgFile, err := resolveAppConfig(cmd)
+	if err != nil {
+		return err
+	}
+
 	cfg, err := loadConfig(cfgFile)
 	if err != nil {
 		return err

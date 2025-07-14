@@ -15,8 +15,7 @@ service:
     graceful_timeout: 10
     startup_delay: 3
     pid_file: pids/{{.AppName}}.pid
-    stdout_log: logs/{{.AppName}}-output.log
-    stderr_log: logs/{{.AppName}}-error.log
+    stdout_log: logs/{{.AppName}}-{{.ReleaseName}}.log
 hooks:
     pre_deploy: []
     post_deploy: []

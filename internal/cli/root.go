@@ -57,7 +57,9 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(NewReleasesCommand())
 	cmd.AddCommand(NewStatusCommand())
 	cmd.AddCommand(NewPushCommand())
-	cmd.AddCommand(NewProxyCommand()) // Add the new proxy command
+	cmd.AddCommand(NewProxyCommand())   // Add the new proxy command
+	cmd.AddCommand(NewServiceCommand()) // 添加服务管理命令
+	cmd.AddCommand(NewPsCommand())      // 添加 ps 命令作为 service list 的别名
 
 	// Add persistent flags to the root command.
 	cmd.PersistentFlags().StringP("config", "c", "", i18n.T().ConfigFileFlag)

@@ -53,6 +53,12 @@ type Config struct {
 		GracefulTimeout int `yaml:"graceful_timeout"`
 		// Startup confirmation delay in seconds
 		StartupDelay int `yaml:"startup_delay"`
+		// Health check retry count
+		HealthCheckRetries int `yaml:"health_check_retries"`
+		// Health check timeout in seconds
+		HealthCheckTimeout int `yaml:"health_check_timeout_seconds"`
+		// Health check interval in seconds
+		HealthCheckInterval int `yaml:"health_check_interval_seconds"`
 		// PID file path
 		PidFile string `yaml:"pid_file"`
 		// Stdout log path
@@ -90,29 +96,35 @@ func DefaultConfig() *Config {
 			Mode: ZeroDowntimeMode,
 		},
 		Service: struct {
-			StartCommand    string `yaml:"start_command"`
-			StopCommand     string `yaml:"stop_command"`
-			Port            int    `yaml:"port"`
-			AltPort         int    `yaml:"alt_port"`
-			ProxyPort       int    `yaml:"proxy_port"`
-			HealthCheck     string `yaml:"health_check"`
-			GracefulTimeout int    `yaml:"graceful_timeout"`
-			StartupDelay    int    `yaml:"startup_delay"`
-			PidFile         string `yaml:"pid_file"`
-			StdoutLog       string `yaml:"stdout_log"`
-			StderrLog       string `yaml:"stderr_log"`
+			StartCommand        string `yaml:"start_command"`
+			StopCommand         string `yaml:"stop_command"`
+			Port                int    `yaml:"port"`
+			AltPort             int    `yaml:"alt_port"`
+			ProxyPort           int    `yaml:"proxy_port"`
+			HealthCheck         string `yaml:"health_check"`
+			GracefulTimeout     int    `yaml:"graceful_timeout"`
+			StartupDelay        int    `yaml:"startup_delay"`
+			HealthCheckRetries  int    `yaml:"health_check_retries"`
+			HealthCheckTimeout  int    `yaml:"health_check_timeout_seconds"`
+			HealthCheckInterval int    `yaml:"health_check_interval_seconds"`
+			PidFile             string `yaml:"pid_file"`
+			StdoutLog           string `yaml:"stdout_log"`
+			StderrLog           string `yaml:"stderr_log"`
 		}{
-			StartCommand:    "systemctl start myapp",
-			StopCommand:     "systemctl stop myapp",
-			Port:            8080,
-			AltPort:         8081,
-			ProxyPort:       80,
-			HealthCheck:     "/health",
-			GracefulTimeout: 30,
-			StartupDelay:    10,
-			PidFile:         "pids/{{.AppName}}.pid",
-			StdoutLog:       "logs/{{.AppName}}-output.log",
-			StderrLog:       "logs/{{.AppName}}-error.log",
+			StartCommand:        "systemctl start myapp",
+			StopCommand:         "systemctl stop myapp",
+			Port:                8080,
+			AltPort:             8081,
+			ProxyPort:           80,
+			HealthCheck:         "/health",
+			GracefulTimeout:     30,
+			StartupDelay:        10,
+			HealthCheckRetries:  15,
+			HealthCheckTimeout:  5,
+			HealthCheckInterval: 2,
+			PidFile:             "pids/{{.AppName}}.pid",
+			StdoutLog:           "logs/{{.AppName}}-output.log",
+			StderrLog:           "logs/{{.AppName}}-error.log",
 		},
 		Hooks: struct {
 			PreDeploy    []string `yaml:"pre_deploy"`

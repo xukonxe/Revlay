@@ -17,11 +17,17 @@ func NewRollbackCommand() *cobra.Command {
 		Long:  i18n.T().RollbackLongDesc,
 		RunE:  runRollback,
 	}
+	cmd.Flags().StringP("app", "a", "", "指定要回滚的服务 ID（从全局服务列表中）")
 	return cmd
 }
 
 func runRollback(cmd *cobra.Command, args []string) error {
-	cfgFile, _ := cmd.Flags().GetString("config")
+	// 处理 --app 参数
+	cfgFile, err := resolveAppConfig(cmd)
+	if err != nil {
+		return err
+	}
+
 	cfg, err := loadConfig(cfgFile)
 	if err != nil {
 		return err
