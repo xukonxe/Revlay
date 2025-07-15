@@ -33,6 +33,8 @@ type Config struct {
 	Deploy struct {
 		Environment map[string]string `yaml:"environment"`
 		Mode        DeploymentMode    `yaml:"mode"`
+		SharedFiles []string          `yaml:"shared_files"`
+		SharedDirs  []string          `yaml:"shared_dirs"`
 	} `yaml:"deploy"`
 
 	// Service management configuration
@@ -89,11 +91,15 @@ func DefaultConfig() *Config {
 		Deploy: struct {
 			Environment map[string]string `yaml:"environment"`
 			Mode        DeploymentMode    `yaml:"mode"`
+			SharedFiles []string          `yaml:"shared_files"`
+			SharedDirs  []string          `yaml:"shared_dirs"`
 		}{
 			Environment: map[string]string{
 				"NODE_ENV": "production",
 			},
-			Mode: ZeroDowntimeMode,
+			Mode:        ZeroDowntimeMode,
+			SharedFiles: []string{},
+			SharedDirs:  []string{},
 		},
 		Service: struct {
 			StartCommand        string `yaml:"start_command"`

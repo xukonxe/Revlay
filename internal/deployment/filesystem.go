@@ -67,8 +67,55 @@ func (d *LocalDeployer) setupDirectoriesAndRelease(releaseName string, sourceDir
 
 // linkSharedPaths creates symlinks for shared paths defined in the config.
 func (d *LocalDeployer) linkSharedPaths(releaseName string) error {
-	// This functionality was not fully implemented in the original file based on config,
-	// keeping it as a no-op to match behavior.
+	releasePath := d.config.GetReleasePathByName(releaseName)
+	sharedPath := d.config.GetSharedPath()
+
+	fmt.Println(color.Cyan(i18n.T().DeployLinkingShared))
+
+	// Link shared files
+	for _, file := range d.config.Deploy.SharedFiles {
+		sourcePath := filepath.Join(sharedPath, file)
+		destPath := filepath.Join(releasePath, file)
+
+		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			return fmt.Errorf("failed to create directory for shared file link: %w", err)
+		}
+
+		// Remove if it exists (e.g., copied from source)
+		if _, err := os.Lstat(destPath); err == nil {
+			if err := os.Remove(destPath); err != nil {
+				return fmt.Errorf("failed to remove existing file at %s: %w", destPath, err)
+			}
+		}
+
+		fmt.Printf("  -> "+i18n.T().DeployLinking+"\n", file)
+		if err := os.Symlink(sourcePath, destPath); err != nil {
+			return fmt.Errorf("failed to link shared file %s: %w", file, err)
+		}
+	}
+
+	// Link shared directories
+	for _, dir := range d.config.Deploy.SharedDirs {
+		sourcePath := filepath.Join(sharedPath, dir)
+		destPath := filepath.Join(releasePath, dir)
+
+		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			return fmt.Errorf("failed to create directory for shared dir link: %w", err)
+		}
+
+		// Remove if it exists
+		if _, err := os.Lstat(destPath); err == nil {
+			if err := os.RemoveAll(destPath); err != nil {
+				return fmt.Errorf("failed to remove existing dir at %s: %w", destPath, err)
+			}
+		}
+
+		fmt.Printf("  -> "+i18n.T().DeployLinking+"\n", dir)
+		if err := os.Symlink(sourcePath, destPath); err != nil {
+			return fmt.Errorf("failed to link shared directory %s: %w", dir, err)
+		}
+	}
+
 	return nil
 }
 

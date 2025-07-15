@@ -143,13 +143,14 @@ func (d *LocalDeployer) stopService(logger *stepLogger) error {
 			if state.Success() {
 				log.Println("Service stopped gracefully.")
 			} else {
-				log.Println(fmt.Sprintf("Service exited with status: %v", state.String()))
+				log.Printf("Service exited with status: %v", state.String())
 			}
 		}
 	}()
 
 	select {
 	case err := <-done:
+		os.Remove(pidPath) // 进程结束后，清理PID文件
 		return err
 	case <-time.After(gracePeriod):
 		// 超时，强制终止进程
@@ -159,7 +160,9 @@ func (d *LocalDeployer) stopService(logger *stepLogger) error {
 		} else {
 			log.Println(color.Red("Service did not stop gracefully. Forcing shutdown..."))
 		}
-		return process.Kill()
+		err := process.Kill()
+		os.Remove(pidPath) // 进程结束后，清理PID文件
+		return err
 	}
 }
 

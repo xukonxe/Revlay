@@ -64,19 +64,6 @@ func NewLocalDeployerWithOptions(cfg *config.Config, enableTUI bool) Deployer {
 	}
 }
 
-// runLocalCommand executes a command on the local machine.
-func (d *LocalDeployer) runLocalCommand(name string, arg ...string) (string, error) {
-	fmt.Println(color.Cyan("  -> Executing: %s %s", name, strings.Join(arg, " ")))
-	cmd := exec.Command(name, arg...)
-	cmd.Dir = d.config.GetReleasesPath() // Fallback directory
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf(i18n.T().DeployCmdExecFailed, err, output)
-	}
-	return string(output), nil
-}
-
 // Deploy dispatches the deployment to the correct strategy based on config.
 func (d *LocalDeployer) Deploy(releaseName string, sourceDir string) error {
 	lockPath := filepath.Join(d.config.RootPath, "revlay.lock")
@@ -196,50 +183,6 @@ func (d *LocalDeployer) runHooks(hooks []string, hookType string) error {
 		}
 	}
 	return nil
-}
-
-func (d *LocalDeployer) runCommandSyncWithStreaming(name string, arg ...string) (string, error) {
-	fmt.Println(color.Cyan("  -> Executing: %s %s", name, strings.Join(arg, " ")))
-	cmd := exec.Command(name, arg...)
-	cmd.Dir = d.config.GetReleasesPath() // Fallback directory
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return "", fmt.Errorf("error creating stdout pipe for command: %w", err)
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return "", fmt.Errorf("error creating stderr pipe for command: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("error starting command: %w", err)
-	}
-
-	// Non-blocking read from stdout and stderr
-	var output strings.Builder
-	go func() {
-		scanner := bufio.NewScanner(stdout)
-		for scanner.Scan() {
-			line := scanner.Text()
-			fmt.Println(line)
-			output.WriteString(line + "\n")
-		}
-	}()
-	go func() {
-		scanner := bufio.NewScanner(stderr)
-		for scanner.Scan() {
-			line := scanner.Text()
-			fmt.Fprintln(os.Stderr, line)
-			output.WriteString(line + "\n")
-		}
-	}()
-
-	if err := cmd.Wait(); err != nil {
-		return output.String(), fmt.Errorf("error waiting for command: %w", err)
-	}
-
-	return output.String(), nil
 }
 
 func (d *LocalDeployer) runCommandAttachedAsyncWithStreaming(releaseName, command string, env map[string]string) (*exec.Cmd, <-chan error, error) {
