@@ -44,17 +44,22 @@ func NewDeploymentFormatter(releaseName, deploymentMode string, totalSteps int, 
 	return f
 }
 
-func (f *DeploymentFormatter) banner() string {
-	// ... (banner generation logic - can be kept as is)
+// renderAsciiArt 生成 "Revlay" 的 ASCII Art 字符串。
+func (f *DeploymentFormatter) renderAsciiArt() string {
 	s, _ := pterm.DefaultBigText.WithLetters(
 		putils.LettersFromStringWithStyle("Revlay", pterm.NewStyle(pterm.FgCyan)),
 	).Srender()
+	return s
+}
 
+// banner 返回一个带有全宽背景的标题字符串。
+// 调用此函数前应确保终端宽度足够。
+func (f *DeploymentFormatter) banner() string {
 	return pterm.DefaultHeader.
 		WithFullWidth().
 		WithBackgroundStyle(pterm.NewStyle(pterm.BgBlack)).
 		WithTextStyle(pterm.NewStyle(pterm.FgLightWhite)).
-		Sprint(s)
+		Sprint(f.renderAsciiArt())
 }
 
 func (f *DeploymentFormatter) updateArea() {
@@ -90,9 +95,28 @@ func (f *DeploymentFormatter) StreamLog(releaseName, streamType, message string)
 	}
 }
 
+// PrintBanner 检查终端宽度并打印合适的标题。
 func (f *DeploymentFormatter) PrintBanner() {
 	if f.beautify {
-		pterm.Println(f.banner())
+		// 获取终端宽度，如果失败则使用一个保守的默认值
+		width, _, _ := pterm.GetTerminalSize()
+
+		// 获取 ASCII Art 的实际宽度（取最长的一行）
+		asciiArt := f.renderAsciiArt()
+		asciiArtWidth := 0
+		for _, line := range strings.Split(asciiArt, "\n") {
+			if len(line) > asciiArtWidth {
+				asciiArtWidth = len(line)
+			}
+		}
+
+		// 如果终端宽度小于 ASCII Art 宽度加上一些边距，则进行降级处理
+		if width < asciiArtWidth+10 {
+			pterm.Println(asciiArt) // 只打印文字，不打印全宽背景
+		} else {
+			pterm.Println(f.banner()) // 宽度足够，打印酷炫的标题
+		}
+
 		pterm.Println(f.infoPanel())
 	}
 }

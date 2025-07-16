@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/spf13/cobra"
 	"github.com/xukonxe/revlay/internal/color"
 	"github.com/xukonxe/revlay/internal/i18n"
 )
+
+var wg sync.WaitGroup
 
 // Execute is the main entry point for the CLI.
 func Execute() {
@@ -37,6 +40,8 @@ func Execute() {
 		fmt.Fprintln(os.Stderr, color.Red("Error: %v", err))
 		os.Exit(1)
 	}
+
+	wg.Wait()
 }
 
 // newRootCmd creates the root command and adds all subcommands.
@@ -48,6 +53,11 @@ func newRootCmd() *cobra.Command {
 		// Silence errors, we'll handle them in Execute()
 		SilenceErrors: true,
 		SilenceUsage:  true,
+		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
+			wg.Add(1)
+			go CheckForUpdatesAsync()
+			return nil
+		},
 	}
 
 	// Add all the commands
@@ -62,6 +72,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(NewPsCommand())      // 添加 ps 命令作为 service list 的别名
 	cmd.AddCommand(NewStartCommand())   // 添加 start 命令作为 service start 的别名
 	cmd.AddCommand(NewStopCommand())    // 添加 stop 命令作为 service stop 的别名
+	cmd.AddCommand(NewUpdateCommand())
 
 	// Add persistent flags to the root command.
 	cmd.PersistentFlags().StringP("config", "c", "", i18n.T().ConfigFileFlag)
