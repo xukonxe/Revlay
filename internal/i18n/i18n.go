@@ -149,6 +149,8 @@ type Messages struct {
 	DeployPostHooks                   string
 	DeployPruning                     string
 	DeployPruningRelease              string
+	DeployPruningLogFile              string
+	DeployPruningLogFileFailed        string
 	DeployCmdExecFailed               string
 	DeployZeroDowntimeWarning         string
 	DeployRollbackStart               string
@@ -395,6 +397,8 @@ var chineseMessages = Messages{
 	DeployPostHooks:                   "执行部署后钩子...",
 	DeployPruning:                     "清理旧版本...",
 	DeployPruningRelease:              "清理旧版本: %s",
+	DeployPruningLogFile:              "清理日志文件: %s",
+	DeployPruningLogFileFailed:        "清理日志文件 %s 失败: %v",
 	DeployCmdExecFailed:               "命令执行失败: %s\n%s",
 	DeployZeroDowntimeWarning:         "警告: 零停机部署目前是简化版，行为与标准部署相同。",
 	DeployRollbackStart:               "正在回滚到版本 %s...",
@@ -634,6 +638,8 @@ var englishMessages = Messages{
 	DeployPostHooks:                   "Step 8: Running post-deploy hooks...",
 	DeployPruning:                     "Step 9: Pruning old releases...",
 	DeployPruningRelease:              "Pruning old release: %s",
+	DeployPruningLogFile:              "Pruning log file: %s",
+	DeployPruningLogFileFailed:        "Failed to prune log file %s: %v",
 	DeployCmdExecFailed:               "Command failed: %s\n%s",
 	DeployZeroDowntimeWarning:         "Warning: Zero-downtime deployment is currently simplified and acts like a standard deploy.",
 	DeployRollbackStart:               "Rolling back to release %s...",

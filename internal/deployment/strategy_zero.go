@@ -40,10 +40,10 @@ func (d *LocalDeployer) deployZeroDowntime(releaseName string, sourceDir string)
 
 	// Step 1: Setup
 	log.Print(i18n.T().DeploySetupDirs)
-	if err := d.setupDirectoriesAndRelease(releaseName, sourceDir); err != nil {
+	if err := d.setupDirectoriesAndRelease(releaseName, sourceDir, log); err != nil {
 		return handleError(err)
 	}
-	if err := d.linkSharedPaths(releaseName); err != nil {
+	if err := d.linkSharedPaths(releaseName, log); err != nil {
 		return handleError(err)
 	}
 	log.Success(i18n.T().DeploySetupDirsSuccess)
@@ -90,7 +90,7 @@ func (d *LocalDeployer) deployZeroDowntime(releaseName string, sourceDir string)
 
 	// Step 7: Prune old releases
 	log.Print(i18n.T().DeployPruning)
-	if err := d.Prune(); err != nil {
+	if err := d.Prune(log); err != nil {
 		log.Warn(fmt.Sprintf(i18n.T().DeployPruningWarn, err))
 	} else {
 		log.Success(i18n.T().DeployPruningSuccess)
@@ -155,7 +155,7 @@ func (d *LocalDeployer) switchTraffic(releaseName string, newPort int) error {
 	if err := d.writeStateFile(newPort); err != nil {
 		return fmt.Errorf("failed to write state file to switch traffic: %w", err)
 	}
-	if err := d.switchSymlink(releaseName); err != nil {
+	if err := d.switchSymlink(releaseName, nil); err != nil {
 		return fmt.Errorf("failed to switch symlink: %w", err)
 	}
 	return nil

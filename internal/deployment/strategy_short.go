@@ -10,7 +10,7 @@ import (
 
 func (d *LocalDeployer) deployShortDowntime(releaseName string, sourceDir string) error {
 	// 定义总步骤数
-	const totalSteps = 6
+	const totalSteps = 7
 
 	// 创建 UI 格式化程序
 	var formatter *ui.DeploymentFormatter
@@ -38,7 +38,7 @@ func (d *LocalDeployer) deployShortDowntime(releaseName string, sourceDir string
 
 	// Step 1: Run pre-flight checks
 	log.Print(i18n.T().DeployPreflightChecks)
-	if err := d.preflightChecks(releaseName); err != nil {
+	if err := d.preflightChecks(releaseName, log); err != nil {
 		if formatter != nil {
 			formatter.CompleteDeployment(false, err.Error())
 		}
@@ -48,13 +48,13 @@ func (d *LocalDeployer) deployShortDowntime(releaseName string, sourceDir string
 
 	// Step 2: Setup directories and copy new release files
 	log.Print(i18n.T().DeploySetupDirs)
-	if err := d.setupDirectoriesAndRelease(releaseName, sourceDir); err != nil {
+	if err := d.setupDirectoriesAndRelease(releaseName, sourceDir, log); err != nil {
 		if formatter != nil {
 			formatter.CompleteDeployment(false, err.Error())
 		}
 		return err
 	}
-	if err := d.linkSharedPaths(releaseName); err != nil {
+	if err := d.linkSharedPaths(releaseName, log); err != nil {
 		if formatter != nil {
 			formatter.CompleteDeployment(false, err.Error())
 		}
@@ -72,7 +72,7 @@ func (d *LocalDeployer) deployShortDowntime(releaseName string, sourceDir string
 
 	// Step 4: Activate the new release
 	log.Print(i18n.T().DeployActivating)
-	if err := d.switchSymlink(releaseName); err != nil {
+	if err := d.switchSymlink(releaseName, log); err != nil {
 		// If switching the symlink fails, the old service is already stopped.
 		// We should try to restart the old service to minimize downtime.
 		if previousReleaseName != "" {
@@ -114,10 +114,10 @@ func (d *LocalDeployer) deployShortDowntime(releaseName string, sourceDir string
 			return fmt.Errorf("deployment failed and no previous release is available to roll back to. The service is stopped")
 		}
 
-		fmt.Println(color.Yellow(fmt.Sprintf("Attempting to roll back to previous release: %s", previousReleaseName)))
+		log.SystemLog(fmt.Sprintf("尝试回滚到之前的版本: %s", previousReleaseName))
 
 		// Rollback Step 1: Point symlink back to the old release
-		if err := d.switchSymlink(previousReleaseName); err != nil {
+		if err := d.switchSymlink(previousReleaseName, log); err != nil {
 			if formatter != nil {
 				formatter.CompleteDeployment(false, "部署失败，回滚也失败")
 			}
@@ -132,7 +132,8 @@ func (d *LocalDeployer) deployShortDowntime(releaseName string, sourceDir string
 			return fmt.Errorf("CRITICAL: Deployment failed, and the subsequent rollback also failed when restarting the old service. The service may be down. Error: %w", err)
 		}
 
-		fmt.Println(color.Green(fmt.Sprintf("Successfully rolled back to release %s.", previousReleaseName)))
+		log.SystemLog(fmt.Sprintf("成功回滚到版本 %s", previousReleaseName))
+
 		if formatter != nil {
 			formatter.CompleteDeployment(false, fmt.Sprintf("部署失败，但已成功回滚到 '%s'", previousReleaseName))
 		}
@@ -141,7 +142,7 @@ func (d *LocalDeployer) deployShortDowntime(releaseName string, sourceDir string
 
 	// Step 7: Prune old releases (不显示为主要步骤，作为附加操作)
 	log.Print(i18n.T().DeployPruning)
-	pruneErr := d.Prune()
+	pruneErr := d.Prune(log)
 	if pruneErr != nil {
 		log.Warn(fmt.Sprintf("清理旧版本警告: %v", pruneErr))
 	} else {

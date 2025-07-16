@@ -33,7 +33,7 @@ type Deployer interface {
 	Rollback(releaseName string) error
 	ListReleases() ([]string, error)
 	GetCurrentRelease() (string, error)
-	Prune() error
+	Prune(logger *stepLogger) error
 	StartService(releaseName string) error
 	StopService() error
 }
@@ -78,11 +78,6 @@ func (d *LocalDeployer) Deploy(releaseName string, sourceDir string) error {
 		return fmt.Errorf(i18n.T().DeployAlreadyInProgress)
 	}
 	defer fileLock.Unlock()
-
-	// Before deploy, run pre-flight checks
-	if err := d.preflightChecks(releaseName); err != nil {
-		return err
-	}
 
 	// Run pre-deployment hooks
 	if err := d.runHooks(d.config.Hooks.PreDeploy, "pre-deploy"); err != nil {
@@ -143,7 +138,7 @@ func (d *LocalDeployer) Rollback(releaseName string) error {
 
 	// 3. Switch symlink
 	fmt.Println("  -> Activating rollback release...")
-	if err := d.switchSymlink(releaseName); err != nil {
+	if err := d.switchSymlink(releaseName, nil); err != nil {
 		return err
 	}
 
