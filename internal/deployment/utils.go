@@ -51,7 +51,7 @@ func (l *stepLogger) Print(message string) {
 
 func (l *stepLogger) Success(message string) {
 	if l.useUI && l.formatter != nil {
-		l.formatter.CompleteStep(l.step-1, true, message)
+		l.formatter.StepSuccess(l.step, message)
 	} else {
 		fmt.Println(color.Green("  ✓ " + message))
 	}
@@ -59,7 +59,7 @@ func (l *stepLogger) Success(message string) {
 
 func (l *stepLogger) Warn(message string) {
 	if l.useUI && l.formatter != nil {
-		l.formatter.WarningStep(l.step-1, message)
+		l.formatter.StepWarn(l.step, message)
 	} else {
 		fmt.Println(color.Yellow("  ! " + message))
 	}
@@ -67,7 +67,7 @@ func (l *stepLogger) Warn(message string) {
 
 func (l *stepLogger) Error(message string) {
 	if l.useUI && l.formatter != nil {
-		l.formatter.CompleteStep(l.step-1, false, message)
+		l.formatter.StepWarn(l.step, message)
 	} else {
 		fmt.Println(color.Red("  ✗ " + message))
 	}
@@ -76,7 +76,7 @@ func (l *stepLogger) Error(message string) {
 // SystemLog 记录系统日志消息
 func (l *stepLogger) SystemLog(message string) {
 	if l.useUI && l.formatter != nil {
-		l.formatter.LogSystemMessage(message)
+		l.formatter.StepLog(l.step, message)
 	} else {
 		fmt.Println(message)
 	}

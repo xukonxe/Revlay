@@ -3,6 +3,7 @@ package deployment
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 	"github.com/xukonxe/revlay/internal/color"
 	"github.com/xukonxe/revlay/internal/config"
 	"github.com/xukonxe/revlay/internal/i18n"
+	"github.com/xukonxe/revlay/internal/ui"
 )
 
 // ServiceAlreadyRunningError is returned when a service is already running.
@@ -185,7 +187,7 @@ func (d *LocalDeployer) runHooks(hooks []string, hookType string) error {
 	return nil
 }
 
-func (d *LocalDeployer) runCommandAttachedAsyncWithStreaming(releaseName, command string, env map[string]string) (*exec.Cmd, <-chan error, error) {
+func (d *LocalDeployer) runCommandAttachedAsync(releaseName, command string, env map[string]string) (*exec.Cmd, <-chan error, error) {
 	cmdStr, err := d.resolveTemplate(command, releaseName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("could not resolve command template: %w", err)
@@ -197,7 +199,7 @@ func (d *LocalDeployer) runCommandAttachedAsyncWithStreaming(releaseName, comman
 	}
 
 	cmd := exec.Command(cmdParts[0], cmdParts[1:]...)
-	cmd.Dir = d.resolvePath(d.config.GetReleasesPath(), releaseName)
+	cmd.Dir = d.config.GetReleasePathByName(releaseName)
 
 	// Set up environment variables
 	cmd.Env = os.Environ()
@@ -205,15 +207,9 @@ func (d *LocalDeployer) runCommandAttachedAsyncWithStreaming(releaseName, comman
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
 	}
 
+	// Goroutine to stream stdout and stderr
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
-
-	err = cmd.Start()
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to start command '%s': %w", cmdStr, err)
-	}
-
-	// Goroutine to stream stdout and stderr
 	go func() {
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
@@ -227,7 +223,12 @@ func (d *LocalDeployer) runCommandAttachedAsyncWithStreaming(releaseName, comman
 		}
 	}()
 
-	done := make(chan error)
+	err = cmd.Start()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to start command '%s': %w", cmdStr, err)
+	}
+
+	done := make(chan error, 1)
 	go func() {
 		done <- cmd.Wait()
 	}()
@@ -235,8 +236,66 @@ func (d *LocalDeployer) runCommandAttachedAsyncWithStreaming(releaseName, comman
 	return cmd, done, nil
 }
 
+func (d *LocalDeployer) runCommandAttachedWithStreaming(releaseName, command string, env map[string]string, formatter *ui.DeploymentFormatter) (*exec.Cmd, <-chan error, error) {
+	cmdStr, err := d.resolveTemplate(command, releaseName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("could not resolve command template: %w", err)
+	}
+
+	cmdParts := strings.Fields(cmdStr)
+	if len(cmdParts) == 0 {
+		return nil, nil, fmt.Errorf("empty command after resolving template")
+	}
+
+	cmd := exec.Command(cmdParts[0], cmdParts[1:]...)
+	cmd.Dir = d.config.GetReleasePathByName(releaseName)
+
+	cmd.Env = os.Environ()
+	for key, value := range env {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
+	}
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get stdout pipe: %w", err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get stderr pipe: %w", err)
+	}
+
+	if formatter != nil {
+		formatter.StartStreaming(releaseName)
+		go streamOutput(stdout, releaseName, "out", formatter)
+		go streamOutput(stderr, releaseName, "err", formatter)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return nil, nil, fmt.Errorf("failed to start command '%s': %w", cmdStr, err)
+	}
+
+	processDone := make(chan error, 1)
+	go func() {
+		processDone <- cmd.Wait()
+		if formatter != nil {
+			formatter.StopStreaming()
+		}
+	}()
+
+	return cmd, processDone, nil
+}
+
+func streamOutput(reader io.Reader, releaseName, streamType string, formatter *ui.DeploymentFormatter) {
+	scanner := bufio.NewScanner(reader)
+	for scanner.Scan() {
+		if formatter != nil {
+			formatter.StreamLog(releaseName, streamType, scanner.Text())
+		}
+	}
+}
+
 func (d *LocalDeployer) resolveTemplate(template string, releaseName string) (string, error) {
-	// A simple resolver. A more advanced one could use text/template.
+	// A simple key-value replacer. More complex templating can be added later.
 	if releaseName == "" {
 		var err error
 		releaseName, err = d.GetCurrentRelease()

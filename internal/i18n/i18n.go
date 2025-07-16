@@ -167,6 +167,43 @@ type Messages struct {
 	DeployErrProcExitedEarlyWithError string
 	DeployCurrentPortInfo             string
 	DeployNewPortInfo                 string
+	DeployDeterminePortsWarn          string
+	DeployDeterminePortsSuccess       string
+	DeployStartNewReleaseFailed       string
+	DeployStartNewReleaseSuccess      string
+	DeploySwitchProxySuccess          string
+	DeployStopOldServiceWarn          string
+	DeployStopOldServiceSuccess       string
+	DeployFindOldPidFailed            string
+	DeployCleanup                     string
+	DeployCleanupFailed               string
+	DeployCleanupSuccess              string
+	DeployVersion                     string
+	DeployMode                        string
+	DeployModeShort                   string
+	DeployModeZero                    string
+	DeployStartTime                   string
+	DeployStart                       string
+	Deploying                         string
+	DeployCurrentSymlink              string
+	DeploySymlinkTo                   string
+	DeployCurrentRelease              string
+	DeployRetain                      string
+	DeployClean                       string
+	DeployCleanWarn                   string
+	DeployCleanSuccess                string
+	DeployFillRelease                 string
+	DeployCopy                        string
+	DeployCopyFailed                  string
+	DeployLinkShared                  string
+	DeployLinkSharedFailed            string
+	DeployStopService                 string
+	DeploySetupDirsSuccess            string
+	DeployPruningWarn                 string
+	DeployPruningSuccess              string
+	DeployOldPidNotFound              string
+	DeployFindOldProcessFailed        string
+	DeployStopOldProcessFailed        string
 
 	// SSH Messages
 	SSHRunningRemote string
@@ -364,11 +401,11 @@ var chineseMessages = Messages{
 	DeployRollbackSuccess:             "回滚成功。",
 	DeployNoReleasesFound:             "未找到任何版本。",
 	DeployExecZeroDowntime:            "零停机部署模式",
-	DeployExecShortDowntime:           "短停机部署模式",
-	DeployStep:                        "步骤 %d: %s",
-	DeployDeterminePorts:              "确定端口...",
-	DeployStartNewRelease:             "在端口 %d 上启动新版本...",
-	DeployHealthCheckOnPort:           "在端口 %d 上执行健康检查...",
+	DeployExecShortDowntime:           "执行短停机部署...",
+	DeployStep:                        "# 步骤 %s: %s",
+	DeployDeterminePorts:              "确定新旧服务端口",
+	DeployStartNewRelease:             "在端口 %d 上启动新版本",
+	DeployHealthCheckOnPort:           "在端口 %d 上执行健康检查",
 	DeploySwitchProxy:                 "健康检查通过。切换代理流量到端口 %d...",
 	DeployActivateSymlink:             "激活新版本符号链接...",
 	DeployStopOldService:              "在端口 %d 上停止旧服务 (等待 %s)...",
@@ -376,10 +413,47 @@ var chineseMessages = Messages{
 	DeployErrProcExitedEarlyWithError: "新版本进程在启动期间意外退出：%v",
 	DeployCurrentPortInfo:             "  - 当前服务运行于端口: %d",
 	DeployNewPortInfo:                 "  - 新服务将启动于端口: %d",
+	DeployDeterminePortsWarn:          "无法确定当前端口: %v。将使用默认主端口。",
+	DeployDeterminePortsSuccess:       "端口确定完成",
+	DeployStartNewReleaseFailed:       "启动新版本服务失败: %v",
+	DeployStartNewReleaseSuccess:      "新版本服务已启动",
+	DeploySwitchProxySuccess:          "代理流量切换成功。",
+	DeployStopOldServiceWarn:          "警告: 旧服务 %s 可能没有在端口 %d 上运行。",
+	DeployStopOldServiceSuccess:       "旧服务 %s 已成功停止。",
+	DeployFindOldPidFailed:            "找不到旧服务进程ID: %v",
+	DeployCleanup:                     "清理旧版本...",
+	DeployCleanupFailed:               "清理失败: %v",
+	DeployCleanupSuccess:              "清理完成。",
+	DeployVersion:                     "版本: %s",
+	DeployMode:                        "部署模式: %s",
+	DeployModeShort:                   "短停机部署",
+	DeployModeZero:                    "零停机部署",
+	DeployStartTime:                   "部署开始时间: %s",
+	DeployStart:                       "部署中...",
+	Deploying:                         "部署中...",
+	DeployCurrentSymlink:              "当前符号链接: %s",
+	DeploySymlinkTo:                   "将符号链接指向: %s",
+	DeployCurrentRelease:              "当前版本: %s",
+	DeployRetain:                      "保留旧版本",
+	DeployClean:                       "清理旧版本",
+	DeployCleanWarn:                   "警告: 清理旧版本可能导致服务中断。",
+	DeployCleanSuccess:                "清理完成。",
+	DeployFillRelease:                 "填充新版本目录",
+	DeployCopy:                        "复制内容",
+	DeployCopyFailed:                  "复制失败: %v",
+	DeployLinkShared:                  "链接共享路径",
+	DeployLinkSharedFailed:            "链接共享路径失败: %v",
+	DeployStopService:                 "停止服务",
+	DeploySetupDirsSuccess:            "设置目录成功。",
+	DeployPruningWarn:                 "清理旧版本时发出警告: %v",
+	DeployPruningSuccess:              "成功清理旧版本。",
+	DeployOldPidNotFound:              "未找到旧服务的PID。",
+	DeployFindOldProcessFailed:        "通过PID %d 查找旧进程失败: %v",
+	DeployStopOldProcessFailed:        "停止旧进程 %d 失败: %v",
 
 	// SSH Messages
-	SSHRunningRemote: "  -> 在远程运行: ssh %s",
-	SSHCommandFailed: "ssh命令失败: %w\n输出: %s",
+	SSHRunningRemote: "在远程服务器上运行: %s",
+	SSHCommandFailed: "远程命令执行失败: %v",
 	SSHStreamFailed:  "ssh流命令失败: %w",
 	SSHRsyncCommand:  "  -> 运行: rsync %s",
 	SSHRsyncFailed:   "rsync命令失败: %w",
@@ -566,11 +640,11 @@ var englishMessages = Messages{
 	DeployRollbackSuccess:             "Rollback successful.",
 	DeployNoReleasesFound:             "No releases found.",
 	DeployExecZeroDowntime:            "Zero-Downtime Deployment",
-	DeployExecShortDowntime:           "Short-Downtime Deployment",
-	DeployStep:                        "Step %d: %s",
-	DeployDeterminePorts:              "Determining ports...",
-	DeployStartNewRelease:             "Starting new release on port %d...",
-	DeployHealthCheckOnPort:           "Performing health check on port %d...",
+	DeployExecShortDowntime:           "Executing short-downtime deployment...",
+	DeployStep:                        "# Step %s: %s",
+	DeployDeterminePorts:              "Determining ports for old and new services",
+	DeployStartNewRelease:             "Starting new release on port %d",
+	DeployHealthCheckOnPort:           "Performing health check on port %d",
 	DeploySwitchProxy:                 "Health check passed. Switching proxy traffic to port %d...",
 	DeployActivateSymlink:             "Activating new release symlink...",
 	DeployStopOldService:              "Stopping old service on port %d (after %s grace period)...",
@@ -578,10 +652,47 @@ var englishMessages = Messages{
 	DeployErrProcExitedEarlyWithError: "new release process exited unexpectedly during startup: %v",
 	DeployCurrentPortInfo:             "  - Current service detected on port: %d",
 	DeployNewPortInfo:                 "  - New service will start on port: %d",
+	DeployDeterminePortsWarn:          "Could not determine current port: %v. Falling back to default primary port.",
+	DeployDeterminePortsSuccess:       "Port determination complete",
+	DeployStartNewReleaseFailed:       "Failed to start new release: %v",
+	DeployStartNewReleaseSuccess:      "New release started successfully",
+	DeploySwitchProxySuccess:          "Proxy traffic switched successfully.",
+	DeployStopOldServiceWarn:          "Warning: old service %s may not be running on port %d.",
+	DeployStopOldServiceSuccess:       "Old service %s stopped successfully.",
+	DeployFindOldPidFailed:            "Failed to find old service PID: %v",
+	DeployCleanup:                     "Cleaning up old releases...",
+	DeployCleanupFailed:               "Cleanup failed: %v",
+	DeployCleanupSuccess:              "Cleanup completed.",
+	DeployVersion:                     "Version: %s",
+	DeployMode:                        "Deployment Mode: %s",
+	DeployModeShort:                   "Short Downtime Deployment",
+	DeployModeZero:                    "Zero Downtime Deployment",
+	DeployStartTime:                   "Deployment start time: %s",
+	DeployStart:                       "Deploying...",
+	Deploying:                         "Deploying...",
+	DeployCurrentSymlink:              "Current symlink: %s",
+	DeploySymlinkTo:                   "Pointing symlink to: %s",
+	DeployCurrentRelease:              "Current release: %s",
+	DeployRetain:                      "Retain old releases",
+	DeployClean:                       "Clean up old releases",
+	DeployCleanWarn:                   "Warning: cleaning up old releases may cause service interruption.",
+	DeployCleanSuccess:                "Cleanup completed.",
+	DeployFillRelease:                 "Fill new release directory",
+	DeployCopy:                        "Copy content",
+	DeployCopyFailed:                  "Copy failed: %v",
+	DeployLinkShared:                  "Link shared paths",
+	DeployLinkSharedFailed:            "Failed to link shared paths: %v",
+	DeployStopService:                 "Stop service",
+	DeploySetupDirsSuccess:            "Directories set up successfully.",
+	DeployPruningWarn:                 "Warning during old release cleanup: %v",
+	DeployPruningSuccess:              "Successfully cleaned up old releases.",
+	DeployOldPidNotFound:              "Could not find PID for the old service.",
+	DeployFindOldProcessFailed:        "Failed to find old process with PID %d: %v",
+	DeployStopOldProcessFailed:        "Failed to stop old process %d: %v",
 
 	// SSH Messages
-	SSHRunningRemote: "  -> Running on remote: ssh %s",
-	SSHCommandFailed: "ssh command failed: %w\nOutput: %s",
+	SSHRunningRemote: "Running on remote server: %s",
+	SSHCommandFailed: "Remote command execution failed: %v",
 	SSHStreamFailed:  "ssh stream command failed: %w",
 	SSHRsyncCommand:  "  -> Running: rsync %s",
 	SSHRsyncFailed:   "rsync command failed: %w",
