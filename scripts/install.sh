@@ -1,5 +1,5 @@
 #!/bin/sh
-# Revlay - 智能安装脚本 v2.1
+# Revlay - 智能安装脚本 v2.2
 #
 # 特性:
 # - 使用 gum 美化输出 (强制依赖)
@@ -42,7 +42,8 @@ main() {
     echo "准备安装指定版本: $(gum style --foreground 212 "$VERSION")"
   else
     echo "正在获取最新版本号..."
-    VERSION=$(curl -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
+    # 使用与 macOS 兼容的方法来解析 JSON
+    VERSION=$(curl -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/latest" | grep '"tag_name"' | cut -d '"' -f 4)
     if [ -z "$VERSION" ]; then
       echo "错误: 无法获取最新的 release 版本。" >&2; exit 1
     fi
