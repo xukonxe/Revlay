@@ -4,14 +4,11 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 
 	"github.com/spf13/cobra"
 	"github.com/xukonxe/revlay/internal/color"
 	"github.com/xukonxe/revlay/internal/i18n"
 )
-
-var wg sync.WaitGroup
 
 // Execute is the main entry point for the CLI.
 func Execute() {
@@ -40,8 +37,6 @@ func Execute() {
 		fmt.Fprintln(os.Stderr, color.Red("Error: %v", err))
 		os.Exit(1)
 	}
-
-	wg.Wait()
 }
 
 // newRootCmd creates the root command and adds all subcommands.
@@ -54,14 +49,6 @@ func newRootCmd() *cobra.Command {
 		// Silence errors, we'll handle them in Execute()
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
-			// 只有在执行的不是 version 命令时才检查更新
-			if cmd.Name() != "version" {
-				wg.Add(1)
-				go CheckForUpdatesAsync()
-			}
-			return nil
-		},
 	}
 
 	// Cobra 会自动处理 --version 标志的逻辑，
@@ -81,10 +68,19 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(NewStartCommand())   // 添加 start 命令作为 service start 的别名
 	cmd.AddCommand(NewStopCommand())    // 添加 stop 命令作为 service stop 的别名
 	cmd.AddCommand(NewUpdateCommand())
+	cmd.AddCommand(NewCheckUpdateCommand())
 
 	// Add persistent flags to the root command.
 	cmd.PersistentFlags().StringP("config", "c", "", i18n.T().ConfigFileFlag)
 	cmd.PersistentFlags().StringP("lang", "l", "", i18n.T().LanguageFlag)
+
+	// 在这里添加所有命令...
+	// ...
+
+	// 6. 在所有命令都添加完毕后，再检查是否需要启动后台更新
+	if shouldTriggerUpdateCheck() {
+		triggerBackgroundUpdateCheck()
+	}
 
 	return cmd
 }
