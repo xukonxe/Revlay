@@ -35,7 +35,8 @@ if ! git diff-index --quiet HEAD --; then
     exit 1
 fi
 
-gum style --foreground 212 '--- 🚀 Revlay 发布流程启动 ---'
+# 通过管道将文本传递给 gum style，避免被误认为 flag
+echo '--- 🚀 Revlay 发布流程启动 ---' | gum style --foreground 212
 
 # 1. 选择版本类型
 gum style '选择版本更新类型:'
@@ -87,12 +88,16 @@ gum style '请输入详细的更新说明 (Ctrl+D 保存并退出):'
 DESCRIPTION=$(gum write --placeholder "在这里详细描述更新内容...")
 
 # 4. 最终确认
-gum style --border normal --margin "1" --padding "1 2" --border-foreground 212 \
-    "即将执行以下操作:" \
-    "  - 版本: ${VERSION}" \
-    "  - 标题: ${TITLE}" \
-    "  - Git 推送: main 分支及新标签" \
-    "  - 发布到 GitHub Releases"
+# 使用 here-document 将多行文本赋值给变量，更清晰、安全
+CONFIRM_DETAILS=$(cat <<EOF
+即将执行以下操作:
+  - 版本: ${VERSION}
+  - 标题: ${TITLE}
+  - Git 推送: main 分支及新标签
+  - 发布到 GitHub Releases
+EOF
+)
+gum style --border normal --margin "1" --padding "1 2" --border-foreground 212 "$CONFIRM_DETAILS"
 
 if ! gum confirm "是否继续?"; then
     gum style --foreground 212 "发布已取消。"
