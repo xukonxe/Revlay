@@ -3,6 +3,8 @@ package cli
 import (
 	"fmt"
 	"log"
+	"os"
+	"strings"
 
 	"github.com/blang/semver"
 	"github.com/rhysd/go-github-selfupdate/selfupdate"
@@ -49,6 +51,15 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	latest, err := selfupdate.UpdateSelf(v, "xukonxe/Revlay")
 	if err != nil {
+		// 检查是否是权限错误
+		if strings.Contains(err.Error(), "permission denied") {
+			executable, _ := os.Executable()
+			fmt.Println(color.Red("\n权限被拒绝。"))
+			fmt.Println(color.Yellow("由于 Revlay 安装在受保护的目录中，您需要使用 'sudo' 来进行更新。"))
+			fmt.Println(color.Yellow("请尝试运行以下命令:"))
+			fmt.Printf("\n  %s\n\n", color.Cyan("sudo "+executable+" update"))
+			return nil // 返回 nil，因为这是一个引导性的"错误"，而不是程序本身的 bug
+		}
 		return fmt.Errorf("更新检查失败: %w", err)
 	}
 
