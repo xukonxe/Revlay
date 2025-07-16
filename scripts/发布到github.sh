@@ -122,18 +122,21 @@ fi
 
 # 5. 执行发布流程
 echo
-gum spin --spinner dot --title "正在提交改动..." -- \
-    git commit --allow-empty -m "chore(release): Release ${VERSION}"
+gum style --bold --foreground 212 '--- 正在提交改动... ---'
+git commit --allow-empty -m "chore(release): Release ${VERSION}"
 
 echo
-gum spin --spinner dot --title "正在创建 Git 标签..." -- \
-    git tag -a "$VERSION" -m "$TITLE"$'\n\n'"$DESCRIPTION"
+gum style --bold --foreground 212 '--- 正在创建 Git 标签... ---'
+git tag -a "$VERSION" -m "$TITLE"$'\n\n'"$DESCRIPTION"
 
 echo
-gum spin --spinner dot --title "正在推送代码和标签到远程仓库..." -- bash -c 'git push && git push origin '"$VERSION"
+gum style --bold --foreground 212 '--- 正在推送代码和标签到远程仓库... ---'
+git push
+git push origin "$VERSION"
 
 echo
-gum spin --spinner dot --title "正在使用 GoReleaser 发布..." -- \
-    goreleaser release --clean
+gum style --bold --foreground 212 '--- 正在使用 GoReleaser 发布... ---'
+goreleaser release --clean
 
-gum style --foreground 212 "🎉 发布完成！版本 ${VERSION} 已成功发布到 GitHub Releases！"
+echo
+gum style --bold --foreground 212 "🎉 发布完成！版本 ${VERSION} 已成功发布到 GitHub Releases！"
