@@ -94,7 +94,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 
 	// Step 4: Execute remote deploy
 	fmt.Println(color.Cyan(i18n.T().PushTriggeringDeploy, appName))
-	deployCommand := fmt.Sprintf("revlay deploy --from-dir %s %s", remoteTempDir, appName)
+	deployCommand := fmt.Sprintf("revlay deploy --from-dir %s --app %s", remoteTempDir, appName)
 	if err := client.RunCommandStream(deployCommand); err != nil {
 		return fmt.Errorf("remote deployment failed: %w", err)
 	}
