@@ -47,18 +47,26 @@ func Execute() {
 // newRootCmd creates the root command and adds all subcommands.
 func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "revlay",
-		Short: i18n.T().AppShortDesc,
-		Long:  i18n.T().AppLongDesc,
+		Use:     "revlay",
+		Short:   i18n.T().AppShortDesc,
+		Long:    i18n.T().AppLongDesc,
+		Version: version, // 这个 'version' 变量由 main.go 传入
 		// Silence errors, we'll handle them in Execute()
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
-			wg.Add(1)
-			go CheckForUpdatesAsync()
+			// 只有在执行的不是 version 命令时才检查更新
+			if cmd.Name() != "version" {
+				wg.Add(1)
+				go CheckForUpdatesAsync()
+			}
 			return nil
 		},
 	}
+
+	// Cobra 会自动处理 --version 标志的逻辑，
+	// 但我们也可以显式地设置模板，使其更美观
+	cmd.SetVersionTemplate(`{{printf "%s\n" .Version}}`)
 
 	// Add all the commands
 	cmd.AddCommand(NewInitCommand())
