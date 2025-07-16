@@ -6,12 +6,19 @@ set -e
 # ==================================
 #    加载 .env 文件中的环境变量
 # ==================================
-if [ -f .env ]; then
+# 获取脚本所在的目录，从而定位项目根目录
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+PROJECT_ROOT=$(dirname "$SCRIPT_DIR")
+ENV_FILE="$PROJECT_ROOT/.env"
+
+# 加载 .env 文件
+if [ -f "$ENV_FILE" ]; then
   # 使用 set -a 来自动导出从 .env 文件中 source 的所有变量
   set -a
-  source .env
+  source "$ENV_FILE"
   set +a
 fi
+
 
 # ==================================
 #      Revlay 交互式发布脚本
@@ -24,6 +31,15 @@ if ! command -v gum &> /dev/null; then
 fi
 if ! command -v goreleaser &> /dev/null; then
     echo "错误: 'goreleaser' 未安装。请运行 'brew install goreleaser'。"
+    exit 1
+fi
+
+# 在脚本早期就检查 GITHUB_TOKEN
+if [ -z "$GITHUB_TOKEN" ]; then
+    gum style --border normal --margin "1" --padding "1 2" --border-foreground 99 \
+        "错误: GITHUB_TOKEN 未设置。" \
+        "请在项目根目录的 .env 文件中提供此变量，" \
+        "或者手动导出: export GITHUB_TOKEN=your_token"
     exit 1
 fi
 
@@ -105,16 +121,6 @@ if ! gum confirm "是否继续?"; then
 fi
 
 # 5. 执行发布流程
-
-# 在运行 goreleaser 之前，最后检查一次 GITHUB_TOKEN
-if [ -z "$GITHUB_TOKEN" ]; then
-    gum style --border normal --margin "1" --padding "1 2" --border-foreground 99 \
-        "错误: GITHUB_TOKEN 未设置。" \
-        "请在项目根目录创建一个 .env 文件并添加 GITHUB_TOKEN=your_token，" \
-        "或者手动导出环境变量: export GITHUB_TOKEN=your_token"
-    exit 1
-fi
-
 echo
 gum spin --spinner dot --title "正在提交改动..." -- \
     git commit --allow-empty -m "chore(release): Release ${VERSION}"
