@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/pterm/pterm"
+	"github.com/pterm/pterm/putils"
 	"github.com/xukonxe/revlay/internal/color"
 	"github.com/xukonxe/revlay/internal/i18n"
 )
@@ -46,7 +47,7 @@ func NewDeploymentFormatter(releaseName, deploymentMode string, totalSteps int, 
 func (f *DeploymentFormatter) banner() string {
 	// ... (banner generation logic - can be kept as is)
 	s, _ := pterm.DefaultBigText.WithLetters(
-		pterm.NewLettersFromStringWithStyle("Revlay", pterm.NewStyle(pterm.FgCyan)),
+		putils.LettersFromStringWithStyle("Revlay", pterm.NewStyle(pterm.FgCyan)),
 	).Srender()
 
 	return pterm.DefaultHeader.

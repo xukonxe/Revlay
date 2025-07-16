@@ -4,7 +4,7 @@ app:
 deploy:
     environment:
         NODE_ENV: production
-    mode: zero_downtime
+    mode: short_downtime
 service:
     start_command: python3 test.py
     stop_command: 
