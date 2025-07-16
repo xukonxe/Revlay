@@ -34,7 +34,7 @@ TARGET_BINARY_NAME="revlay"
 # --- 脚本主逻辑 ---
 main() {
   gum style --padding "1 2" --border double --border-foreground 212 \
-    "欢迎使用 Revlay 智能安装脚本"
+    "欢迎使用 Revlay 安装脚本 v2.2"
 
   # 确定要安装的版本
   if [ -n "$1" ]; then
