@@ -29,3 +29,7 @@ go.work.sum
 .idea/
 *.swp
 *~
+# Added by goreleaser init:
+dist/
+
+*.env

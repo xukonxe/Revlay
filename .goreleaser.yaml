@@ -1,0 +1,62 @@
+# 为您的项目明确指定一个名称，这将用在所有产物的命名中
+project_name: revlay
+
+# 使用最新的配置版本
+version: 2
+
+# 在正式构建前执行的钩子
+before:
+  hooks:
+    # 确保 go.mod 文件是最新的
+    - go mod tidy
+
+# 构建配置
+builds:
+  # 我们现在只构建 revlay 主程序
+  - id: revlay
+    # 指定 main 包所在的目录
+    dir: cmd/revlay
+    # 禁用 CGO，创建静态链接的二进制文件，这对于部署工具来说是最佳实践
+    env:
+      - CGO_ENABLED=0
+    # 'darwin' 用于构建所有 macOS 版本
+    # 'linux' 用于构建 Linux 版本
+    goos:
+      - linux
+      - darwin
+    # 'amd64' 对应 Intel Mac/服务器, 'arm64' 对应 Apple Silicon (M1/M2/M3) Mac / ARM 服务器
+    goarch:
+      - amd64
+      - arm64
+
+# 归档打包配置
+archives:
+  - # GoReleaser 会自动打包上面唯一的 build 目标
+    # 定义一个清晰、统一的命名模板，方便脚本解析
+    # 例如: revlay_1.2.3_linux_amd64.tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    # 默认使用 tar.gz 格式
+    format: tar.gz
+
+# 为所有归档文件生成一个校验和文件
+checksum:
+  name_template: 'checksums.txt'
+
+# 自动生成版本更新日志 (Changelog)
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      # 忽略文档和测试相关的提交
+      - "^docs:"
+      - "^test:"
+
+# 在 GitHub Release 页面添加一个页脚
+release:
+  footer: |
+    ### ⚠️ Beta 版本警告
+    当前为beta版本，漏洞和稳定性问题不保证，请不要使用在敏感应用上，因此带来的所有损失本项目概不负责。
+
+    ---
+    由 [GoReleaser](https://goreleaser.com) 发布
