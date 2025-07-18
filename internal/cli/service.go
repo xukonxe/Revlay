@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -113,12 +114,25 @@ func newServiceListCommand() *cobra.Command {
 		Short: "列出全局服务列表中的所有服务",
 		Long:  "列出全局服务列表中的所有服务，包括它们的 ID、名称和路径。",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			outputFormat, _ := cmd.Flags().GetString("output")
+
 			// 获取所有服务
 			services, err := config.ListServices()
 			if err != nil {
 				return fmt.Errorf("获取服务列表失败: %w", err)
 			}
 
+			if outputFormat == "json" {
+				// 输出 JSON 格式
+				jsonOutput, err := json.Marshal(services)
+				if err != nil {
+					return fmt.Errorf("无法将服务列表转换为 JSON: %w", err)
+				}
+				fmt.Println(string(jsonOutput))
+				return nil
+			}
+
+			// 默认或 text 格式输出
 			if len(services) == 0 {
 				fmt.Println("全局服务列表为空。使用 'revlay service add' 添加服务。")
 				return nil
@@ -157,6 +171,8 @@ func newServiceListCommand() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().String("output", "text", "输出格式 (text, json)")
 
 	return cmd
 }

@@ -1,0 +1,4 @@
+FROM revlay-test-env:base
+# 将 docker-test 目录下的旧版 revlay 复制到镜像中
+COPY ./revlay-old /usr/local/bin/revlay
+RUN chmod +x /usr/local/bin/revlay 

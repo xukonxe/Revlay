@@ -1,0 +1,29 @@
+{
+  "name": "revlay",
+  "version": "1.0.0",
+  "description": "<div align=\"center\">",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "vitest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xukonxe/Revlay.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/xukonxe/Revlay/issues"
+  },
+  "homepage": "https://github.com/xukonxe/Revlay#readme",
+  "devDependencies": {
+    "execa": "^9.6.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}

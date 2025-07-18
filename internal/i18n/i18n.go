@@ -103,11 +103,13 @@ type Messages struct {
 	ServiceStalePidFile       string
 
 	// Push Command
+	PreflightCheckFailed string
 	PushShortDesc        string
 	PushLongDesc         string
 	PushStarting         string
 	PushCheckingRemote   string
 	PushRemoteFound      string
+	PushAppFound         string
 	PushCreatingTempDir  string
 	PushTempDirCreated   string
 	PushCleaningUp       string
@@ -351,11 +353,13 @@ var chineseMessages = Messages{
 	ServiceStalePidFile:       "发现过时的PID文件，启动前将自动删除。",
 
 	// Push Command
+	PreflightCheckFailed: "Pre-flight check failed: command '%s' not found. Please install it and ensure it's in your PATH. Error: %v",
 	PushShortDesc:        "推送本地目录到远程并部署",
 	PushLongDesc:         `此命令使用rsync将本地目录推送到远程服务器，然后触发远程机器上的'revlay deploy'命令。\n\n它通过在一个步骤中打包、传输和激活新版本，简化了部署过程。`,
 	PushStarting:         "🚀 开始推送到 %s 的应用 '%s'...",
 	PushCheckingRemote:   "🔎 检查远程环境...",
 	PushRemoteFound:      "✅ 找到远程'revlay'命令。",
+	PushAppFound:         "✅ 找到远程应用 '%s'。",
 	PushCreatingTempDir:  "📁 在远程创建临时目录...",
 	PushTempDirCreated:   "✅ 已创建临时目录: %s",
 	PushCleaningUp:       "\n🧹 清理远程临时目录...",
@@ -592,14 +596,16 @@ var englishMessages = Messages{
 	ServiceStalePidFile:       "Stale PID file found and removed.",
 
 	// Push Command
-	PushShortDesc:        "Push local files to the server (via rsync)",
-	PushLongDesc:         `This command uses rsync to push a local directory to a remote server and then triggers 'revlay deploy' on the remote machine.\n\nIt streamlines the deployment process by packaging, transferring, and activating a new release in a single step.`,
-	PushStarting:         "🚀 Starting push to %s for app '%s'...",
+	PreflightCheckFailed: "本地环境预检失败：命令 '%s' 未找到。请安装该命令并确保其位于系统的 PATH 环境变量中。错误: %v",
+	PushShortDesc:        "Push and deploy an application to a remote server",
+	PushLongDesc:         "Compresses a local directory, securely transfers it to a remote server using rsync, and then executes the 'deploy' command on the server to complete the deployment process.",
+	PushStarting:         "🚀 开始推送到 '%s' (应用: '%s')...",
 	PushCheckingRemote:   "🔎 Checking remote environment...",
-	PushRemoteFound:      "✅ Remote 'revlay' command found.",
-	PushCreatingTempDir:  "📁 Creating temporary directory on remote...",
-	PushTempDirCreated:   "✅ Created temporary directory: %s",
-	PushCleaningUp:       "\n🧹 Cleaning up temporary directory on remote...",
+	PushRemoteFound:      "✅ Remote 'revlay' command found. Version: %s",
+	PushAppFound:         "✅ Found remote application '%s'.",
+	PushCreatingTempDir:  "📁 Creating temporary directory on remote server...",
+	PushTempDirCreated:   "✅ Temporary directory created at '%s'.",
+	PushCleaningUp:       "🧹 Cleaning up temporary directory...",
 	PushCleanupFailed:    "⚠️ Failed to clean up temporary directory %s: %v",
 	PushCleanupComplete:  "✅ Cleanup complete.",
 	PushSyncingFiles:     "🚚 Syncing files to %s...",

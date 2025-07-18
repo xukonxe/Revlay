@@ -1,0 +1,4 @@
+FROM revlay-test-env:base
+# 将项目根目录的新版 revlay 复制到镜像中
+COPY ./revlay /usr/local/bin/revlay
+RUN chmod +x /usr/local/bin/revlay 

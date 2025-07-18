@@ -20,6 +20,11 @@ func SetVersion(v string) {
 	version = v
 }
 
+// GetVersion 返回当前应用程序的版本号。
+func GetVersion() string {
+	return version
+}
+
 // NewUpdateCommand 创建 `revlay update` 命令。
 func NewUpdateCommand() *cobra.Command {
 	cmd := &cobra.Command{
