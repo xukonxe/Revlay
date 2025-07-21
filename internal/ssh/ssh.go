@@ -25,12 +25,13 @@ type sshClient struct {
 	Host    string
 	Port    int
 	KeyFile string
+	SSHArgs []string // To hold extra SSH arguments
 	Verbose bool
 }
 
 // NewClient creates a new SSH client.
-func NewClient(user, host string, port int, keyFile string, verbose bool) Client {
-	return &sshClient{User: user, Host: host, Port: port, KeyFile: keyFile, Verbose: verbose}
+func NewClient(user, host string, port int, keyFile string, sshArgs []string, verbose bool) Client {
+	return &sshClient{User: user, Host: host, Port: port, KeyFile: keyFile, SSHArgs: sshArgs, Verbose: verbose}
 }
 
 // buildSSHArgs constructs the common arguments for ssh/rsync commands.
@@ -42,6 +43,10 @@ func (c *sshClient) buildSSHArgs() []string {
 	if c.KeyFile != "" {
 		args = append(args, "-i", c.KeyFile)
 	}
+	// Add extra ssh arguments
+	if len(c.SSHArgs) > 0 {
+		args = append(args, c.SSHArgs...)
+	}
 	return args
 }
 
@@ -52,6 +57,7 @@ func (c *sshClient) buildArgs(remoteCommand string) []string {
 		dest = fmt.Sprintf("%s@%s", c.User, c.Host)
 	}
 	args := c.buildSSHArgs()
+	// The remote command must be passed as a single argument to SSH.
 	args = append(args, dest, remoteCommand)
 	return args
 }
@@ -66,7 +72,11 @@ func (c *sshClient) RunCommand(command string) (string, error) {
 	cmd := exec.Command("ssh", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf(i18n.T().SSHCommandFailed, err, string(output))
+		// 当 ssh 连接失败或远程命令返回非零退出代码时，CombinedOutput() 返回的 err 不为 nil。
+		// 为了确保调用者能获得完整的上下文，我们将命令的输出和错误本身都包含在返回的错误中。
+		// 这样，即使 ssh 命令本身没有在 stderr 中输出明确的错误信息（例如在 BatchMode 下），
+		// 调用者依然可以从错误中解析出 "exit status 255" 之类的信息。
+		return string(output), fmt.Errorf("%s: %w", string(output), err)
 	}
 	return string(output), nil
 }

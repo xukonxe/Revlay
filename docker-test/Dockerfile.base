@@ -1,14 +1,42 @@
-FROM hub-mirror.c.163.com/library/ubuntu:22.04
-ENV DEBIAN_FRONTEND=noninteractive
-RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
-    apt-get update && apt-get install -y --no-install-recommends \
-    openssh-server rsync curl wget sudo && \
-    rm -rf /var/lib/apt/lists/*
+FROM alpine:3.19
 
-RUN useradd -m -s /bin/bash revlay-user && \
+# Install required packages
+RUN apk update && apk add --no-cache \
+    openssh-server \
+    rsync \
+    curl \
+    wget \
+    sudo \
+    bash \
+    netcat-openbsd
+
+# Create user and set password
+RUN adduser -D -s /bin/bash revlay-user && \
     echo "revlay-user:revlay-password" | chpasswd && \
-    adduser revlay-user sudo
+    addgroup revlay-user wheel && \
+    echo '%wheel ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/wheel
 
-RUN mkdir /var/run/sshd
+# Configure SSH
+RUN mkdir -p /var/run/sshd && \
+    ssh-keygen -A && \
+    echo "PermitRootLogin yes" >> /etc/ssh/sshd_config && \
+    echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config && \
+    echo "PubkeyAuthentication yes" >> /etc/ssh/sshd_config && \
+    echo "AuthorizedKeysFile .ssh/authorized_keys" >> /etc/ssh/sshd_config && \
+    echo "AllowUsers revlay-user" >> /etc/ssh/sshd_config && \
+    echo "UseDNS no" >> /etc/ssh/sshd_config
+
+# 创建启动脚本
+RUN echo '#!/bin/sh' > /start.sh && \
+    echo '/usr/sbin/sshd -D' >> /start.sh && \
+    chmod +x /start.sh
+
+# 添加健康检查
+HEALTHCHECK --interval=1s --timeout=3s --start-period=1s --retries=3 \
+    CMD nc -z localhost 22 || exit 1
+
+# Expose SSH port
 EXPOSE 22
-CMD ["/usr/sbin/sshd", "-D"] 
+
+# Start SSH server
+CMD ["/start.sh"] 

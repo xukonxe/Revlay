@@ -1,0 +1,8 @@
+Host *
+    BatchMode yes
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+    ConnectTimeout 10
+    Compression yes
+    TCPKeepAlive yes
+    ServerAliveInterval 10 

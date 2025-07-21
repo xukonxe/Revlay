@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -15,8 +16,8 @@ import (
 var (
 	// newSSHClient is a factory function for creating an ssh.Client.
 	// It's a variable so it can be replaced in tests.
-	newSSHClient = func(user, host string, port int, keyFile string, verbose bool) ssh.Client {
-		return ssh.NewClient(user, host, port, keyFile, verbose)
+	newSSHClient = func(user, host string, port int, keyFile string, sshArgs []string, verbose bool) ssh.Client {
+		return ssh.NewClient(user, host, port, keyFile, sshArgs, verbose)
 	}
 )
 
@@ -38,6 +39,7 @@ func NewPushCommand() *cobra.Command {
 	cmd.Flags().Bool("quiet", false, "Suppress all output except for errors")
 	cmd.Flags().Int("ssh-port", 22, "SSH port to use for the connection")
 	cmd.Flags().StringP("ssh-key", "i", "", "Path to the SSH private key")
+	cmd.Flags().StringArray("ssh-args", []string{}, "Additional arguments to pass to the SSH command")
 
 	_ = cmd.MarkFlagRequired("path")
 	_ = cmd.MarkFlagRequired("to")
@@ -53,39 +55,49 @@ type pushUI struct {
 }
 
 func newPushUI(quiet bool) *pushUI {
+	// In quiet mode or E2E test, we disable the spinner.
+	// In tests, we want plain text output for easier parsing.
+	disableSpinner := quiet || os.Getenv("REVLAY_E2E_TEST") != ""
 	ui := &pushUI{quiet: quiet}
-	if !quiet {
-		// Assign a non-nil spinner so methods can be called.
-		// Start it fresh for each major step.
+	if !disableSpinner {
 		ui.spinner = &pterm.SpinnerPrinter{}
 	}
 	return ui
 }
 
 func (ui *pushUI) Start(text string) {
-	if !ui.quiet {
+	if ui.spinner != nil {
 		ui.spinner, _ = pterm.DefaultSpinner.Start(text)
+	} else if !ui.quiet {
+		pterm.Info.Println(text)
 	}
 }
 
 func (ui *pushUI) UpdateText(text string) {
-	if !ui.quiet {
+	if ui.spinner != nil {
 		ui.spinner.UpdateText(text)
+	} else if !ui.quiet {
+		// In non-spinner mode, we might not need to print updates,
+		// but for debugging purposes in tests, we print it as info.
+		pterm.Info.Println(text)
 	}
 }
 
 func (ui *pushUI) Success(text string) {
-	if !ui.quiet {
+	if ui.spinner != nil {
 		ui.spinner.Success(text)
+	} else if !ui.quiet {
+		pterm.Success.Println(text)
 	}
 }
 
 func (ui *pushUI) Fail(text string) {
-	// Always print failures
-	pterm.Error.Println(text)
-	if !ui.quiet {
+	// Always print failures, regardless of quiet mode.
+	if ui.spinner != nil {
 		ui.spinner.Fail()
 	}
+	// pterm.Error always prints to stderr.
+	pterm.Error.Println(text)
 }
 
 // preflightCheck checks if required local commands are installed.
@@ -103,6 +115,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 	verbose, _ := cmd.Flags().GetBool("verbose")
 	sshPort, _ := cmd.Flags().GetInt("ssh-port")
 	sshKey, _ := cmd.Flags().GetString("ssh-key")
+	sshArgs, _ := cmd.Flags().GetStringArray("ssh-args")
 	sourceDir, _ := cmd.Flags().GetString("path")
 	destination, _ := cmd.Flags().GetString("to")
 	appName, _ := cmd.Flags().GetString("app")
@@ -131,6 +144,7 @@ func runPush(cmd *cobra.Command, args []string) error {
 		Port:         sshPort,
 		KeyFile:      sshKey,
 		AppName:      appName,
+		SSHArgs:      sshArgs,
 		GetVersion:   GetVersion,
 		NewSSHClient: newSSHClient,
 		Quiet:        quiet,

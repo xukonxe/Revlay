@@ -21,8 +21,9 @@ type PushOptions struct {
 	Port         int
 	KeyFile      string
 	AppName      string
+	SSHArgs      []string      // Add SSHArgs here
 	GetVersion   func() string // Function to get local version
-	NewSSHClient func(user, host string, port int, keyFile string, verbose bool) ssh.Client
+	NewSSHClient func(user, host string, port int, keyFile string, sshArgs []string, verbose bool) ssh.Client
 	Quiet        bool
 	Verbose      bool
 }
@@ -35,7 +36,7 @@ type Pusher struct {
 
 // NewPusher creates a new Pusher.
 func NewPusher(opts *PushOptions) *Pusher {
-	client := opts.NewSSHClient(opts.User, opts.Host, opts.Port, opts.KeyFile, opts.Verbose)
+	client := opts.NewSSHClient(opts.User, opts.Host, opts.Port, opts.KeyFile, opts.SSHArgs, opts.Verbose)
 	return &Pusher{
 		Opts:   opts,
 		client: client,
